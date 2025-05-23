@@ -1,5 +1,4 @@
 import requests
-from datetime import datetime
 
 '''requests.post("http://127.0.0.1:8000/items/", json=({
   "id": 0,
@@ -32,34 +31,25 @@ from datetime import datetime
 
 '''requests.delete("http://127.0.0.1:8000/items/", params={"item_id": 2})'''
 
-'''requests.post("http://127.0.0.1:8000/users/", json=({
-  "id": 0,
+'''requests.post("http://127.0.0.1:8000/users/", params=({
   "name": "Gaith Adra",
   "email": "gaithgagaga@gmail.com",
-  "created_at": datetime.now().isoformat(),
   "password": "WelloHW",
-  "is_admin": True
 }))'''
 
-'''requests.post("http://127.0.0.1:8000/users/", json=({
-  "id": 1,
+'''requests.post("http://127.0.0.1:8000/users/", params=({
+  "name": "John Marji",
+  "email": "jm.3@gmail.com",
+  "password": "kellowh",
+}))'''
+
+'''requests.post("http://127.0.0.1:8000/users/", params=({
   "name": "Tony Smith",
   "email": "tony.smithy@gmail.com",
-  "created_at": datetime.now().isoformat(),
-  "password": "helloPW",
-  "is_admin": False
-}))'''
-
-'''requests.post("http://127.0.0.1:8000/users/", json=({
-  "id": 2,
-  "name": "Marco Rash",
-  "email": "marco.r@gmail.com",
-  "created_at": datetime.now().isoformat(),
-  "password": "newPw",
-  "is_admin": False
+  "password": "helloPW"
 }))'''
 
 '''requests.put("http://127.0.0.1:8000/users/", params={"username": "Gaith Adra", "user_pw": "WelloHW", "user_id": 2, "email": "marco.r@gmail.com"})'''
 
 
-'''requests.delete("http://127.0.0.1:8000/users/", params={"username": "Gaith Adra", "user_pw": "WelloHW", "user_id": 2})'''
+'''requests.delete("http://127.0.0.1:8000/users/", params={"username": "Gaith Adra", "user_pw": "WelloHW", "user_id": 0})'''

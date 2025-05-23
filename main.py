@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form
 from pydantic import EmailStr
 from sqlalchemy import create_engine, text
 from Backend_Classes import Item, Category, User, hash_password, verify_password
 from typing import List
 from dotenv import load_dotenv
 import os
+from datetime import datetime
 
 
 load_dotenv()
@@ -158,7 +159,7 @@ def get_user(user_id: int) -> dict[str, User]:
     return {"User": user}
 
 
-@api.post("/users/")
+'''@api.post("/users/")
 def add_user(user: User) -> dict[str, User]:
     with engine.begin() as conn:
         result = conn.execute(text(f'SELECT * FROM users WHERE id = {user.id};')).fetchone()
@@ -173,6 +174,30 @@ def add_user(user: User) -> dict[str, User]:
                           "hashed_pw":hash_password(user.password),
                           "is_admin": user.is_admin
                          })
+    return {"Added": user}'''
+
+@api.post("/users/")
+def add_user(name: str, email: EmailStr, password: str) -> dict[str, User]:
+    with engine.begin() as conn:
+        result = conn.execute(text("SELECT * FROM users WHERE name = :name"), {"name": name}).fetchone()
+        if result is not None:
+            raise HTTPException(status_code=409, detail=f"User '{name}' already exists.")
+        else:
+            user_insertion = conn.execute(text("""INSERT INTO users (name, email, created_at, hashed_pw, is_admin) VALUES (:name, :email, :created_at, :hashed_pw, :is_admin) RETURNING id, created_at, hashed_pw, is_admin;"""), 
+                         {"name": name,
+                          "email": email,
+                          "created_at": datetime.now().isoformat(),
+                          "hashed_pw":hash_password(password),
+                          "is_admin": False
+                         })
+            
+            row = user_insertion.fetchone()
+            user_id = row.id
+            user_created_at = row.created_at
+            user_hashed_pw = row.hashed_pw
+            user_is_admin = row.is_admin
+
+    user = User(id=user_id, name=name, email=email, created_at=user_created_at, password=user_hashed_pw, is_admin=user_is_admin)
     return {"Added": user}
 
 
