@@ -159,23 +159,6 @@ def get_user(user_id: int) -> dict[str, User]:
     return {"User": user}
 
 
-'''@api.post("/users/")
-def add_user(user: User) -> dict[str, User]:
-    with engine.begin() as conn:
-        result = conn.execute(text(f'SELECT * FROM users WHERE id = {user.id};')).fetchone()
-        if result is not None:
-            raise HTTPException(status_code=409, detail=f'User with user id#{user.id} already exists.')
-        else:
-            conn.execute(text("""INSERT INTO users (id, name, email, created_at, hashed_pw, is_admin) OVERRIDING SYSTEM VALUE VALUES (:id, :name, :email, :created_at, :hashed_pw, :is_admin);"""), 
-                         {"id": user.id,
-                          "name": user.name,
-                          "email": user.email,
-                          "created_at": user.created_at,
-                          "hashed_pw":hash_password(user.password),
-                          "is_admin": user.is_admin
-                         })
-    return {"Added": user}'''
-
 @api.post("/users/")
 def add_user(name: str, email: EmailStr, password: str) -> dict[str, User]:
     with engine.begin() as conn:
