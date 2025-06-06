@@ -1,24 +1,13 @@
 from fastapi import FastAPI, HTTPException, Form
 from pydantic import EmailStr
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from Backend_Classes import Item, Category, User, hash_password, verify_password
 from typing import List
-from dotenv import load_dotenv
-import os
 from datetime import datetime
+from database import engine
 
-
-load_dotenv()
-
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
 
 api = FastAPI()
-engine = create_engine(f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
-
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR ITEMS ################################################
 @api.get("/")
