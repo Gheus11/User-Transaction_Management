@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException, Form
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import EmailStr
 from sqlalchemy import text
-from Backend_Classes import Item, Category, User, hash_password, verify_password
+from sqlalchemy.orm import Session
+from Backend_Classes import Item, User, Transaction, UserORM, TransactionORM, hash_password, verify_password
 from typing import List
 from datetime import datetime
-from database import engine
+from database import engine, get_db
 
 
 api = FastAPI()
@@ -110,122 +111,80 @@ def remove_item(item_id: int) -> dict[str, Item]:
 
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR USERS ################################################
-@api.get("/users/")
-def load_all_users() -> dict[str, List[User]]:
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT * FROM users;"))
+### ONLY ADMINS SHOULD BE ABLE TO SEE THIS!!!
+@api.get("/users/", response_model=dict[str, List[User]])
+def load_all_users(db: Session = Depends(get_db)):
+    users = db.query(UserORM).all()
+    return {"Users": [User.model_validate(user) for user in users]}
 
-    users_db = []
+
+@api.get("/users/{user_id}/", response_model=dict[str, User])
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(UserORM).filter(UserORM.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User with user id#{user_id} does not exist.')
+    return {"User": User.model_validate(user)}
+
+
+@api.post("/create_user/", response_model=dict[str, User])
+def add_user(name: str, email: EmailStr, password: str, db: Session = Depends(get_db)):
+    existing_user = db.query(UserORM).filter(UserORM.name == name).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail=f"User '{name}' already exists.")
     
-    for row in result:
-        user = User(
-            id = row.id,
-            name = row.name,
-            email = row.email,
-            created_at = row.created_at,
-            password = row.hashed_pw,
-            is_admin = row.is_admin
-        )
-        users_db.append(user)
-    return {"Users": users_db}
+    user = UserORM(name=name, email=email, created_at=datetime.now(), password=hash_password(password), is_admin=False)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"Added": User.model_validate(user)}
 
 
-@api.get("/users/{user_id}/")
-def get_user(user_id: int) -> dict[str, User]:
-    with engine.connect() as conn:
-        result = conn.execute(text(f'SELECT * FROM users WHERE id = {user_id}')).fetchone()
-        if result is None:
-            raise HTTPException(status_code=404, detail=f'User with user id#{user_id} does not exist.')
+@api.put("/update_user/", response_model=dict[str, User])
+def update_user(username: str, user_pw: str, db: Session = Depends(get_db),
+                name: str | None = None,
+                email: EmailStr | None = None,
+                password: str | None = None,
+                is_admin: bool | None = None):
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {name} does not exists.')
     
-    user = User(
-            id = result.id,
-            name = result.name,
-            email = result.email,
-            created_at = result.created_at,
-            password = result.hashed_pw,
-            is_admin = result.is_admin
-        )
-    return {"User": user}
-
-
-@api.post("/users/")
-def add_user(name: str, email: EmailStr, password: str) -> dict[str, User]:
-    with engine.begin() as conn:
-        result = conn.execute(text("SELECT * FROM users WHERE name = :name"), {"name": name}).fetchone()
-        if result is not None:
-            raise HTTPException(status_code=409, detail=f"User '{name}' already exists.")
-        else:
-            user_insertion = conn.execute(text("""INSERT INTO users (name, email, created_at, hashed_pw, is_admin) VALUES (:name, :email, :created_at, :hashed_pw, :is_admin) RETURNING id, created_at, hashed_pw, is_admin;"""), 
-                         {"name": name,
-                          "email": email,
-                          "created_at": datetime.now().isoformat(),
-                          "hashed_pw":hash_password(password),
-                          "is_admin": False
-                         })
-            
-            row = user_insertion.fetchone()
-            user_id = row.id
-            user_created_at = row.created_at
-            user_hashed_pw = row.hashed_pw
-            user_is_admin = row.is_admin
-
-    user = User(id=user_id, name=name, email=email, created_at=user_created_at, password=user_hashed_pw, is_admin=user_is_admin)
-    return {"Added": user}
-
-
-@api.put("/users/")
-def update_user(username: str, user_pw: str,
-    user_id: int,
-    name: str | None = None,
-    email: EmailStr | None = None,
-    password: str | None = None,
-    is_admin: bool | None = None
-) -> dict[str, User]:
-    with engine.begin() as conn:
-        result = conn.execute(text(f'SELECT * FROM users WHERE id = {user_id};')).fetchone()
-
-        if result is None:
-            raise HTTPException(status_code=404, detail=f'User with id {user_id} does not exists.')
-
-        if not admin_user(username, user_pw):
-            if username != result.name or not verify_password(user_pw, result.hashed_pw): 
-                raise HTTPException(status_code=403, detail="User not allowed.")
+    is_admin_user = admin_user(username, user_pw)
+    if not is_admin_user:
+        if username != user.name or not verify_password(user_pw, user.password): 
+            raise HTTPException(status_code=403, detail="User not allowed.")
         
-        if all(detail is None for detail in (name, email, password, is_admin)):
-            raise HTTPException(status_code=404, detail=f'No details were updated for the user {user_id}')
+    if all(detail is None for detail in (name, email, password, is_admin)):
+        raise HTTPException(status_code=400, detail=f'No details to update for user {name}')
         
-        updated_name = name if name is not None else result.name
-        updated_password = hash_password(password) if password is not None else result.hashed_pw
-        updated_is_admin = is_admin if is_admin is not None else result.is_admin
-        created_at = result.created_at
-        updated_email = email if email is not None else result.email
+    user.name = name if name is not None else user.name
+    user.email = email if email is not None else user.email
+    user.password = hash_password(password) if password is not None else user.password
+    user.is_admin = is_admin if is_admin is not None and is_admin_user else user.is_admin
 
-        conn.execute(text("""UPDATE users SET name = :updated_name, email = :updated_email, hashed_pw = :updated_password, is_admin = :updated_is_admin WHERE id = :user_id;"""),
-                    {"user_id": user_id,
-                    "updated_name": updated_name,
-                    "updated_email": updated_email,
-                    "updated_password": updated_password,
-                    "updated_is_admin": updated_is_admin})
+    db.commit()
+    db.refresh(user)
+    return {"Updated": User.model_validate(user)}
+
+
+@api.delete("/delete_user/", response_model=str)
+def delete_user(username: str, user_pw: str, user_to_delete: str, db: Session = Depends(get_db)):
+    requesting_user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not requesting_user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exists.')
     
-    user = User(id=user_id, name=updated_name, email=updated_email, created_at=created_at, password=updated_password, is_admin=updated_is_admin)
-    return {"Updated": user}
-
-
-@api.delete("/users/")
-def delete_user(username: str, user_pw: str, user_id: int) -> dict[str, User]:
-    with engine.begin() as conn:
-        result = conn.execute(text(f'SELECT * FROM users WHERE id = {user_id};')).fetchone()
-        if result is None:
-            raise HTTPException(status_code=404, detail=f'User with id {user_id} does not exists.')
+    target_user = db.query(UserORM).filter(UserORM.name == user_to_delete).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f'User {user_to_delete} does not exists.')
+    
+    is_admin_user = admin_user(username, user_pw)
+    if not is_admin_user:
+        if username != user_to_delete or not verify_password(user_pw, requesting_user.password): 
+            raise HTTPException(status_code=403, detail="Password verification failed.")
         
-        if not admin_user(username, user_pw):
-            if username != result.name or not verify_password(user_pw, result.hashed_pw): 
-                raise HTTPException(status_code=403, detail="User not allowed.")
-        
-        conn.execute(text("""DELETE FROM users WHERE id = :user_id;"""),
-                     {"user_id": user_id})
-        user = User(id=user_id, name=result.name, email=result.email, created_at=result.created_at, password=result.hashed_pw, is_admin=result.is_admin)
-    return {"Deleted": user}
+    db.delete(target_user)
+    db.commit()
+    return f'Deleted user {user_to_delete}'
 
 
 ################################################ HELPER FUNCTIONS FOR USERS ################################################
@@ -236,3 +195,107 @@ def admin_user(name: str, password: str) -> bool:
         if result and verify_password(password, result.hashed_pw):
             return result.is_admin
         return False
+    
+
+################################################ START OF HTTP REQUEST FUNCTIONS FOR TRANSACTIONS ################################################
+@api.get('/transactions/', response_model=dict[str, List[Transaction]])
+def load_transactions(username: str, password:str, db: Session = Depends(get_db)):
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exists.')
+    if not verify_password(password, user.password):
+        raise HTTPException(status_code=403, detail="Password verification failed.")
+    
+    transactions = db.query(TransactionORM).filter(TransactionORM.user_id == user.id).all()
+    if not transactions:
+        raise HTTPException(status_code=404, detail=f'No transactions found for {username}.')
+    
+    return {"User transactions": [Transaction.model_validate(transaction) for transaction in transactions]}
+    
+
+@api.post('/add_transaction/', response_model=dict[str, Transaction])
+def add_transaction(username: str, password: str, db: Session = Depends(get_db), 
+                    money_earned: float | None = None, 
+                    money_spent: float | None = None):
+    if (money_earned is None) == (money_spent is None):
+        raise HTTPException(status_code=400, detail=f'Either money_earned or money_spent must be given.')
+    if money_earned is not None and money_earned <= 0:
+        raise HTTPException(status_code=400, detail=f'money_earned must be positive.')
+    if money_spent is not None and money_spent <= 0:
+        raise HTTPException(status_code=400, detail=f'money_spent must be positive.')
+    
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exists.')
+    if not verify_password(password, user.password):
+        raise HTTPException(status_code=403, detail="Password verification failed.")
+    
+    money_earned = money_earned if money_earned else None
+    date_time_earned = datetime.now() if money_earned is not None else None
+    money_spent = money_spent if money_spent else None
+    date_time_spent = datetime.now() if money_spent is not None else None
+    
+    transaction = TransactionORM(user_id=user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent)
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+    return {"Added transaction": Transaction.model_validate(transaction)}
+
+
+@api.put('/update_transaction/', response_model=dict[str, Transaction])
+def update_transaction(username: str, password: str, transaction_id: int, db: Session = Depends(get_db),
+                       money_earned: float | None = None,
+                       money_spent: float | None = None):
+    if (money_earned is None) == (money_spent is None):
+        raise HTTPException(status_code=400, detail=f'Either money_earned or money_spent must be given.')
+    if money_earned is not None and money_earned <=0:
+        raise HTTPException(status_code=400, detail=f'money_earned must be positive.')
+    if money_spent is not None and money_spent <=0:
+        raise HTTPException(status_code=400, detail=f'money_spent must be positive.')
+
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
+    if not verify_password(password, user.password):
+        raise HTTPException(status_code=403, detail=f'Password verification failed.')
+    
+    transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail=f'Transaction {transaction_id} does not exist.')
+    if transaction.user_id != user.id:
+        raise HTTPException(status_code=403, detail=f'User {username} not allowed to modify this entry.')
+    
+    if money_earned is not None:
+        transaction.money_earned = money_earned
+        transaction.date_time_earned = datetime.now()
+        transaction.money_spent = None
+        transaction.date_time_spent= None
+
+    elif money_spent is not None:
+        transaction.money_spent = money_spent
+        transaction.date_time_spent= datetime.now()
+        transaction.money_earned = None
+        transaction.date_time_earned = None
+
+    db.commit()
+    db.refresh(transaction)
+    return {"Updated transaction": Transaction.model_validate(transaction)}
+
+
+@api.delete('/delete_transaction/', response_model=dict[str, Transaction])
+def delete_transaction(username: str, password: str, transaction_id: int, db: Session = Depends(get_db)):
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
+    if not verify_password(password, user.password):
+        raise HTTPException(status_code=403, detail=f'Password verification failed.')
+    
+    transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail=f'Transaction {transaction_id} does not exist.')
+    if transaction.user_id != user.id:
+        raise HTTPException(status_code=403, detail=f'User {username} not allowed to modify this entry.')
+    
+    db.delete(transaction)
+    db.commit()
+    return {"Deleted transaction": Transaction.model_validate(transaction)}

@@ -49,7 +49,19 @@ import requests
   "password": "helloPW"
 }))'''
 
-'''requests.put("http://127.0.0.1:8000/users/", params={"username": "Gaith Adra", "user_pw": "WelloHW", "user_id": 2, "email": "marco.r@gmail.com"})'''
+'''requests.post("http://127.0.0.1:8000/create_user/", params=({
+  "name": "Alice Larren",
+  "email": "a.l.2025@gmail.com",
+  "password": "WelloHW",
+}))'''
+
+'''requests.put("http://127.0.0.1:8000/update_user/", params={"username": "Alice Larren", "user_pw": "WelloHW", "email": "a.larr.2025@gmail.com"})'''
 
 
-'''requests.delete("http://127.0.0.1:8000/users/", params={"username": "Gaith Adra", "user_pw": "WelloHW", "user_id": 0})'''
+'''requests.delete("http://127.0.0.1:8000/delete_user/", params={"username": "Alice Larren", "user_pw": "WelloHW", "user_to_delete": "Alice Larren"})'''
+
+'''requests.post("http://127.0.0.1:8000/add_transaction/", params={"username": "Gaith Adra", "password": "WelloHW", "money_earned": 3.0})'''
+
+'''requests.put("http://127.0.0.1:8000/update_transaction/", params={"username": "Gaith Adra", "password": "WelloHW", "transaction_id": 2, "money_earned": 4.20})'''
+
+'''requests.delete("http://127.0.0.1:8000/delete_transaction/", params={"username": "Gaith Adra", "password": "WelloHW", "transaction_id": 2})'''

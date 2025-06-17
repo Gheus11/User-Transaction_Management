@@ -44,19 +44,19 @@ class User(BaseModel):
     is_admin: bool
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class Transaction(BaseModel):
     id: int
     user_id: int
-    money_earned: float
-    date_time_earned: datetime
-    money_spent: float
-    date_time_spent: datetime
+    money_earned: float | None
+    date_time_earned: datetime | None
+    money_spent: float | None
+    date_time_spent: datetime | None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class UserORM(Base):
@@ -66,7 +66,7 @@ class UserORM(Base):
     name = Column(String, index=True)
     email = Column(String, index=True)
     created_at = Column(DateTime)
-    password = Column(String)
+    password = Column("hashed_pw", String)
     is_admin = Column(Boolean)
 
     transactions = relationship("TransactionORM", back_populates="user")
@@ -77,10 +77,10 @@ class TransactionORM(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    money_earned = Column(Float)
-    date_time_earned = Column(DateTime)
-    money_spent = Column(Float)
-    date_time_spent = Column(DateTime)
+    money_earned = Column(Float, nullable=True)
+    date_time_earned = Column(DateTime, nullable=True)
+    money_spent = Column(Float, nullable=True)
+    date_time_spent = Column(DateTime, nullable=True)
 
     user = relationship("UserORM", back_populates="transactions")
 
