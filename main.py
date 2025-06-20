@@ -1,17 +1,87 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer
 from pydantic import EmailStr
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from Backend_Classes import Item, User, Transaction, UserORM, TransactionORM, hash_password, verify_password
+from Backend_Classes import TokenResponse, Item, User, Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from database import engine, get_db
+from jose import jwt, JWTError
 
 
 api = FastAPI()
 
+################################################ LOGIN + JWT + LOGOUT ################################################
+@api.post("/login/", response_model=TokenResponse)
+def log_in(username: str, password: str, db: Session = Depends(get_db)):
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
+    if not verify_password(password, user.password):
+        raise HTTPException(status_code=403, detail="Password verification failed.")
+    
+    jwt_token = generate_jwt_token(username)
+    token_payload = jwt.decode(jwt_token, SECRET_KEY, algorithms=[HASH_ALG])
+    token_expiry = datetime.fromtimestamp(token_payload["exp"], tz=timezone.utc)
+    jwt_token_orm = JWT_TokenORM(user_id=user.id ,token=jwt_token, date_time_created=datetime.now(timezone.utc), expiry=token_expiry)
+
+    db.add(jwt_token_orm)
+    db.commit()
+    return {"access_token": jwt_token, "token_type": "bearer"}
+
+
+def generate_jwt_token(username: str) -> str:
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode = {"sub": username, "exp": expiry}
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=HASH_ALG)
+
+
+def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> str:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[HASH_ALG])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid JWT payload.")     
+        
+        requested_token = db.query(JWT_TokenORM).filter_by(token=token).first()
+        if not requested_token:
+            raise HTTPException(status_code=401, detail="Token does not exist.")
+        if requested_token.is_blacklisted:
+            raise HTTPException(status_code=401, detail="This JWT token has been blacklisted (Token Expired).")
+
+        if datetime.fromtimestamp(payload["exp"], tz=timezone.utc) < datetime.now(timezone.utc):
+              requested_token.is_blacklisted = True
+              db.commit()
+              raise HTTPException(status_code=401, detail="Expired JWT token.")
+           
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired JWT.")
+
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/")
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> UserORM:
+    username = verify_jwt_token(token, db)
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
+    return user
+
+
+@api.get("/logout/", response_model=str)
+def logout(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user_token = db.query(JWT_TokenORM).filter_by(token=token).first()
+    if (not user_token) or (user_token.is_blacklisted):
+        raise HTTPException(status_code=401, detail="Token does not exist or has been expired.")
+    
+    user_token.is_blacklisted = True
+    db.commit()
+    return "Logged out"
+
+
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR ITEMS ################################################
-@api.get("/")
 @api.get("/items/")
 def load_all_items() -> dict[str, List[Item]]:
     with engine.connect() as conn:
@@ -111,9 +181,15 @@ def remove_item(item_id: int) -> dict[str, Item]:
 
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR USERS ################################################
-### ONLY ADMINS SHOULD BE ABLE TO SEE THIS!!!
 @api.get("/users/", response_model=dict[str, List[User]])
-def load_all_users(db: Session = Depends(get_db)):
+def load_all_users(username: str, password: str, db: Session = Depends(get_db)):
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
+    is_admin_user = admin_user(username, password)
+    if not is_admin_user:
+        if username != user.name or not verify_password(password, user.password): 
+            raise HTTPException(status_code=403, detail="Only an admin user is allowed to access the users list.")
     users = db.query(UserORM).all()
     return {"Users": [User.model_validate(user) for user in users]}
 
@@ -132,7 +208,7 @@ def add_user(name: str, email: EmailStr, password: str, db: Session = Depends(ge
     if existing_user:
         raise HTTPException(status_code=409, detail=f"User '{name}' already exists.")
     
-    user = UserORM(name=name, email=email, created_at=datetime.now(), password=hash_password(password), is_admin=False)
+    user = UserORM(name=name, email=email, created_at=datetime.now(timezone.utc), password=hash_password(password), is_admin=False)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -199,22 +275,18 @@ def admin_user(name: str, password: str) -> bool:
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR TRANSACTIONS ################################################
 @api.get('/transactions/', response_model=dict[str, List[Transaction]])
-def load_transactions(username: str, password:str, db: Session = Depends(get_db)):
-    user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail=f'User {username} does not exists.')
-    if not verify_password(password, user.password):
-        raise HTTPException(status_code=403, detail="Password verification failed.")
-    
-    transactions = db.query(TransactionORM).filter(TransactionORM.user_id == user.id).all()
+def load_transactions(current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db)):
+    transactions = db.query(TransactionORM).filter(TransactionORM.user_id == current_user.id).all()
     if not transactions:
-        raise HTTPException(status_code=404, detail=f'No transactions found for {username}.')
+        raise HTTPException(status_code=404, detail=f'No transactions found for {current_user.name}.')
     
-    return {"User transactions": [Transaction.model_validate(transaction) for transaction in transactions]}
+    transactions_list = [Transaction.model_validate(transaction) for transaction in transactions]
+    print(transactions_list)
+    return {"User transactions": transactions_list}
     
 
 @api.post('/add_transaction/', response_model=dict[str, Transaction])
-def add_transaction(username: str, password: str, db: Session = Depends(get_db), 
+def add_transaction(current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db), 
                     money_earned: float | None = None, 
                     money_spent: float | None = None):
     if (money_earned is None) == (money_spent is None):
@@ -224,18 +296,12 @@ def add_transaction(username: str, password: str, db: Session = Depends(get_db),
     if money_spent is not None and money_spent <= 0:
         raise HTTPException(status_code=400, detail=f'money_spent must be positive.')
     
-    user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail=f'User {username} does not exists.')
-    if not verify_password(password, user.password):
-        raise HTTPException(status_code=403, detail="Password verification failed.")
-    
     money_earned = money_earned if money_earned else None
-    date_time_earned = datetime.now() if money_earned is not None else None
+    date_time_earned = datetime.now(timezone.utc) if money_earned is not None else None
     money_spent = money_spent if money_spent else None
-    date_time_spent = datetime.now() if money_spent is not None else None
+    date_time_spent = datetime.now(timezone.utc) if money_spent is not None else None
     
-    transaction = TransactionORM(user_id=user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent)
+    transaction = TransactionORM(user_id=current_user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent)
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
@@ -243,7 +309,7 @@ def add_transaction(username: str, password: str, db: Session = Depends(get_db),
 
 
 @api.put('/update_transaction/', response_model=dict[str, Transaction])
-def update_transaction(username: str, password: str, transaction_id: int, db: Session = Depends(get_db),
+def update_transaction(transaction_id: int, current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db),
                        money_earned: float | None = None,
                        money_spent: float | None = None):
     if (money_earned is None) == (money_spent is None):
@@ -252,28 +318,22 @@ def update_transaction(username: str, password: str, transaction_id: int, db: Se
         raise HTTPException(status_code=400, detail=f'money_earned must be positive.')
     if money_spent is not None and money_spent <=0:
         raise HTTPException(status_code=400, detail=f'money_spent must be positive.')
-
-    user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
-    if not verify_password(password, user.password):
-        raise HTTPException(status_code=403, detail=f'Password verification failed.')
     
     transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail=f'Transaction {transaction_id} does not exist.')
-    if transaction.user_id != user.id:
-        raise HTTPException(status_code=403, detail=f'User {username} not allowed to modify this entry.')
+    if transaction.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail=f'User {current_user.name} not allowed to modify this entry.')
     
     if money_earned is not None:
         transaction.money_earned = money_earned
-        transaction.date_time_earned = datetime.now()
+        transaction.date_time_earned = datetime.now(timezone.utc)
         transaction.money_spent = None
         transaction.date_time_spent= None
 
     elif money_spent is not None:
         transaction.money_spent = money_spent
-        transaction.date_time_spent= datetime.now()
+        transaction.date_time_spent= datetime.now(timezone.utc)
         transaction.money_earned = None
         transaction.date_time_earned = None
 
@@ -283,18 +343,12 @@ def update_transaction(username: str, password: str, transaction_id: int, db: Se
 
 
 @api.delete('/delete_transaction/', response_model=dict[str, Transaction])
-def delete_transaction(username: str, password: str, transaction_id: int, db: Session = Depends(get_db)):
-    user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
-    if not verify_password(password, user.password):
-        raise HTTPException(status_code=403, detail=f'Password verification failed.')
-    
+def delete_transaction(transaction_id: int, current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db)):    
     transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail=f'Transaction {transaction_id} does not exist.')
-    if transaction.user_id != user.id:
-        raise HTTPException(status_code=403, detail=f'User {username} not allowed to modify this entry.')
+    if transaction.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail=f'User {current_user.name} not allowed to modify this entry.')
     
     db.delete(transaction)
     db.commit()

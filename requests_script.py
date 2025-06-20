@@ -1,4 +1,5 @@
 import requests
+import json
 
 '''requests.post("http://127.0.0.1:8000/items/", json=({
   "id": 0,
@@ -57,11 +58,15 @@ import requests
 
 '''requests.put("http://127.0.0.1:8000/update_user/", params={"username": "Alice Larren", "user_pw": "WelloHW", "email": "a.larr.2025@gmail.com"})'''
 
-
 '''requests.delete("http://127.0.0.1:8000/delete_user/", params={"username": "Alice Larren", "user_pw": "WelloHW", "user_to_delete": "Alice Larren"})'''
 
-'''requests.post("http://127.0.0.1:8000/add_transaction/", params={"username": "Gaith Adra", "password": "WelloHW", "money_earned": 3.0})'''
+'''login_response = requests.post("http://127.0.0.1:8000/login/", params={"username": "Gaith Adra", "password": "WelloHW"})
+token = login_response.json()["access_token"]
 
-'''requests.put("http://127.0.0.1:8000/update_transaction/", params={"username": "Gaith Adra", "password": "WelloHW", "transaction_id": 2, "money_earned": 4.20})'''
+requests.post("http://127.0.0.1:8000/add_transaction/", headers={"Authorization": f"Bearer {token}"}, params={"money_earned": 3.0})
 
-'''requests.delete("http://127.0.0.1:8000/delete_transaction/", params={"username": "Gaith Adra", "password": "WelloHW", "transaction_id": 2})'''
+requests.put("http://127.0.0.1:8000/update_transaction/", headers={"Authorization": f"Bearer {token}"}, params={"transaction_id": 3, "money_earned": 4.20})
+
+requests.get("http://127.0.0.1:8000/transactions/", headers={"Authorization": f"Bearer {token}"})
+
+requests.delete("http://127.0.0.1:8000/delete_transaction/", headers={"Authorization": f"Bearer {token}"}, params={"transaction_id": 5})'''
