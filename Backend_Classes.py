@@ -24,21 +24,6 @@ class TokenResponse(BaseModel):
     token_type: str
 
 
-class Category(Enum):
-    FOOD = 'Food'
-    BEVERAGE = 'Beverage'
-    POTION = 'Potion'
-
-
-class Item(BaseModel):
-    id: int
-    name: str
-    value: float
-    description: str
-    count: int
-    category: Category
-
-
 class User(BaseModel):
     id: int
     name: str

@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import EmailStr
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from Backend_Classes import TokenResponse, Item, User, Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
+from Backend_Classes import TokenResponse, User, Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from typing import List
 from datetime import datetime, timezone, timedelta
 from database import engine, get_db
@@ -81,124 +81,30 @@ def logout(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     return "Logged out"
 
 
-################################################ START OF HTTP REQUEST FUNCTIONS FOR ITEMS ################################################
-@api.get("/items/")
-def load_all_items() -> dict[str, List[Item]]:
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT * FROM items;"))
-
-    items_db = []
-
-    for row in result:
-        item = Item(id = row.id,
-            name = row.name,
-            value = row.value,
-            description = row.description,
-            count = row.count,
-            category = row.category)
-        items_db.append(item)
-    return {"items": items_db}
-
-
-@api.get("/items/{item_id}/")
-def get_item(item_id: int) -> dict[str, Item]:
-    with engine.connect() as conn:
-        result = conn.execute(text(f'SELECT * FROM items WHERE id = {item_id};')).fetchone()
-        if result is None:
-            raise HTTPException(status_code=404, detail=f'Item with item id#{item_id} does not exist.')
-    
-    item = Item(id = result.id,
-            name = result.name,
-            value = result.value,
-            description = result.description,
-            count = result.count,
-            category = result.category)
-    return {"item": item}
-
-
-@api.post("/items/")
-def add_item(item: Item) -> dict[str, Item]:
-    with engine.begin() as conn:
-        result = conn.execute(text(f'SELECT * FROM items WHERE id = {item.id};')).fetchone()
-        
-        if result is not None:
-            raise HTTPException(status_code=409, detail=f'Item with item id#{item.id} already exists.')
-        else:
-            conn.execute(text("""INSERT INTO items (id, name, value, description, count, category) OVERRIDING SYSTEM VALUE VALUES (:id, :name, :value, :description, :count, :category);"""),
-                                  {"id": item.id,
-                                   "name": item.name,
-                                   "value": item.value,
-                                   "description": item.description,
-                                   "count": item.count,
-                                   "category": item.category.value}) 
-    return {"Added:": item} 
-
-
-@api.put("/items/")
-def update_item(
-    item_id: int,
-    name: str | None = None,
-    value: float | None = None,
-    description: str | None = None,
-    count: int | None = None,
-) -> dict[str, Item]:
-    with engine.begin() as conn:
-        result = conn.execute(text(f'SELECT * FROM items WHERE id = {item_id};')).fetchone()
-        if result is None:
-            raise HTTPException(status_code=404, detail=f'Item with id {item_id} does not exists.')
-        if all(detail is None for detail in (name, value, description, count)):
-            raise HTTPException(status_code=404, detail=f'No details were updated for the item {item_id}')
-            
-        updated_name = name if name is not None else result.name
-        updated_value = value if value is not None else result.value
-        updated_description = description if description is not None else result.description
-        updated_count = count if count is not None else result.count
-        category = result.category
-
-        conn.execute(text("""UPDATE items SET name = :updated_name, value = :updated_value, description = :updated_description, count = :updated_count WHERE id = :item_id;"""),
-                   {"item_id": item_id,
-                    "updated_name": updated_name,
-                    "updated_value": updated_value,
-                    "updated_description": updated_description,
-                    "updated_count": updated_count})
-        
-        item = Item(id=item_id, name=updated_name, value=updated_value, description=updated_description, count=updated_count, category=category)
-    return {"Updated:": item}
-
-
-@api.delete("/items/")
-def remove_item(item_id: int) -> dict[str, Item]:
-    with engine.begin() as conn:
-        result = conn.execute(text(f'SELECT * FROM items WHERE id = {item_id};')).fetchone() 
-
-        if result is None:
-            raise HTTPException(status_code=404, detail=f'Item with id {item_id} does not exists.')
-        
-        conn.execute(text("""DELETE FROM items WHERE id = :item_id;"""),
-                     {"item_id": item_id})
-        item = Item(id=item_id, name=result.name, value=result.value, description=result.description, count=result.count, category=result.category)
-    return {"Removed:": item}
-
-
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR USERS ################################################
 @api.get("/users/", response_model=dict[str, List[User]])
 def load_all_users(username: str, password: str, db: Session = Depends(get_db)):
+    if not admin_user(username, password):
+        raise HTTPException(status_code=403, detail="Only an admin user is allowed to access the users list.")
     user = db.query(UserORM).filter(UserORM.name == username).first()
     if not user:
         raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
-    is_admin_user = admin_user(username, password)
-    if not is_admin_user:
-        if username != user.name or not verify_password(password, user.password): 
-            raise HTTPException(status_code=403, detail="Only an admin user is allowed to access the users list.")
     users = db.query(UserORM).all()
-    return {"Users": [User.model_validate(user) for user in users]}
+    users_list = [User.model_validate(user) for user in users]
+    print(users_list)
+    return {"Users": users_list}
 
 
 @api.get("/users/{user_id}/", response_model=dict[str, User])
-def get_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(UserORM).filter(UserORM.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail=f'User with user id#{user_id} does not exist.')
+def get_user(username: str, password: str, user_id: int, db: Session = Depends(get_db)):
+    if not admin_user(username, password):
+        user = db.query(UserORM).filter(UserORM.name == username).first()   
+        if (not user) or (not verify_password(password, user.password)):
+            raise HTTPException(status_code=404, detail=f'Incorrect username or password.')
+        if user_id != user.id:
+            raise HTTPException(status_code=403, detail="Access not allowed.")
+    else:
+        user = db.query(UserORM).filter(UserORM.id == user_id).first() 
     return {"User": User.model_validate(user)}
 
 
@@ -245,8 +151,8 @@ def update_user(username: str, user_pw: str, db: Session = Depends(get_db),
 
 @api.delete("/delete_user/", response_model=str)
 def delete_user(username: str, user_pw: str, user_to_delete: str, db: Session = Depends(get_db)):
-    requesting_user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not requesting_user:
+    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not user:
         raise HTTPException(status_code=404, detail=f'User {username} does not exists.')
     
     target_user = db.query(UserORM).filter(UserORM.name == user_to_delete).first()
@@ -255,7 +161,7 @@ def delete_user(username: str, user_pw: str, user_to_delete: str, db: Session = 
     
     is_admin_user = admin_user(username, user_pw)
     if not is_admin_user:
-        if username != user_to_delete or not verify_password(user_pw, requesting_user.password): 
+        if username != user_to_delete or not verify_password(user_pw, user.password): 
             raise HTTPException(status_code=403, detail="Password verification failed.")
         
     db.delete(target_user)
@@ -353,3 +259,4 @@ def delete_transaction(transaction_id: int, current_user: UserORM = Depends(get_
     db.delete(transaction)
     db.commit()
     return {"Deleted transaction": Transaction.model_validate(transaction)}
+
