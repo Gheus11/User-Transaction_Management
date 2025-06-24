@@ -43,6 +43,7 @@ class Transaction(BaseModel):
     date_time_earned: datetime | None
     money_spent: float | None
     date_time_spent: datetime | None
+    purpose: str
 
     class Config:
         from_attributes = True
@@ -71,6 +72,7 @@ class TransactionORM(Base):
     date_time_earned = Column(DateTime, nullable=True)
     money_spent = Column(Float, nullable=True)
     date_time_spent = Column(DateTime, nullable=True)
+    purpose = Column(String)
 
     user = relationship("UserORM", back_populates="transactions")
 

@@ -169,7 +169,6 @@ def delete_user(username: str, user_pw: str, user_to_delete: str, db: Session = 
     return f'Deleted user {user_to_delete}'
 
 
-################################################ HELPER FUNCTIONS FOR USERS ################################################
 def admin_user(name: str, password: str) -> bool:
     with engine.connect() as conn:
         result = conn.execute(text("""SELECT * FROM users WHERE name = :name"""),
@@ -192,7 +191,7 @@ def load_transactions(current_user: UserORM = Depends(get_current_user), db: Ses
     
 
 @api.post('/add_transaction/', response_model=dict[str, Transaction])
-def add_transaction(current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db), 
+def add_transaction(purpose: str, current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db), 
                     money_earned: float | None = None, 
                     money_spent: float | None = None):
     if (money_earned is None) == (money_spent is None):
@@ -207,7 +206,7 @@ def add_transaction(current_user: UserORM = Depends(get_current_user), db: Sessi
     money_spent = money_spent if money_spent else None
     date_time_spent = datetime.now(timezone.utc) if money_spent is not None else None
     
-    transaction = TransactionORM(user_id=current_user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent)
+    transaction = TransactionORM(user_id=current_user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent, purpose=purpose)
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
@@ -217,12 +216,11 @@ def add_transaction(current_user: UserORM = Depends(get_current_user), db: Sessi
 @api.put('/update_transaction/', response_model=dict[str, Transaction])
 def update_transaction(transaction_id: int, current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db),
                        money_earned: float | None = None,
-                       money_spent: float | None = None):
-    if (money_earned is None) == (money_spent is None):
-        raise HTTPException(status_code=400, detail=f'Either money_earned or money_spent must be given.')
-    if money_earned is not None and money_earned <=0:
+                       money_spent: float | None = None,
+                       purpose: str | None = None):
+    if money_earned is not None and money_earned <= 0:
         raise HTTPException(status_code=400, detail=f'money_earned must be positive.')
-    if money_spent is not None and money_spent <=0:
+    if money_spent is not None and money_spent <= 0:
         raise HTTPException(status_code=400, detail=f'money_spent must be positive.')
     
     transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
@@ -242,6 +240,8 @@ def update_transaction(transaction_id: int, current_user: UserORM = Depends(get_
         transaction.date_time_spent= datetime.now(timezone.utc)
         transaction.money_earned = None
         transaction.date_time_earned = None
+    
+    transaction.purpose = purpose if purpose else transaction.purpose
 
     db.commit()
     db.refresh(transaction)
