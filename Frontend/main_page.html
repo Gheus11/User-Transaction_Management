@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Main Page</title>
+    </head>
+    <body>
+        <h2>Welcome, please insert login data</h2><br>
+
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+        
+        <form action="/login/" method="post">
+            <label for="username">Username:</label><br>
+            <input type="text" id="username" name="username" required><br>
+            <label for="password">Password</label><br>
+            <input type="password" id="password" name="password" required><br><br>
+            <input type="submit" value="login">
+        </form>
+    </body>
+</html>

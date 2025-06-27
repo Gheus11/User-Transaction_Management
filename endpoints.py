@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, Request, Form, Cookie, HTTPException, Depends
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import EmailStr
 from sqlalchemy import text
@@ -11,15 +13,25 @@ from jose import jwt, JWTError
 
 
 api = FastAPI()
+templates = Jinja2Templates(directory="Frontend")
 
 ################################################ LOGIN + JWT + LOGOUT ################################################
-@api.post("/login/", response_model=TokenResponse)
-def log_in(username: str, password: str, db: Session = Depends(get_db)):
+@api.get("/")
+def main_page(request: Request):
+    return templates.TemplateResponse("main_page.html", {"request": request})
+
+
+@api.get("/hub/")
+def main_hub(request: Request):
+    username = request.cookies.get("username")
+    return templates.TemplateResponse("main_hub.html", {"request": request, "username": username})
+
+
+@api.post("/login/", response_class=HTMLResponse)
+def log_in(request: Request, username: str = Form(), password: str = Form(), db: Session = Depends(get_db)):
     user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
-    if not verify_password(password, user.password):
-        raise HTTPException(status_code=403, detail="Password verification failed.")
+    if not user or not verify_password(password, user.password):
+        return templates.TemplateResponse("main_page.html", {"request": request, "message": "Incorrect username or password."})
     
     jwt_token = generate_jwt_token(username)
     token_payload = jwt.decode(jwt_token, SECRET_KEY, algorithms=[HASH_ALG])
@@ -28,7 +40,11 @@ def log_in(username: str, password: str, db: Session = Depends(get_db)):
 
     db.add(jwt_token_orm)
     db.commit()
-    return {"access_token": jwt_token, "token_type": "bearer"}
+
+    response = RedirectResponse(url="/hub/", status_code=303)
+    response.set_cookie(key="access_token", value=jwt_token, httponly=True, secure=False, samesite="lax", max_age=900)
+    response.set_cookie(key="username", value=username, httponly=False, max_age=900)
+    return response
 
 
 def generate_jwt_token(username: str) -> str:
@@ -70,15 +86,20 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 
-@api.get("/logout/", response_model=str)
-def logout(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    user_token = db.query(JWT_TokenORM).filter_by(token=token).first()
+@api.get("/logout/", response_class=HTMLResponse)
+def logout(request: Request, access_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not access_token:
+        return templates.TemplateResponse("main_page.html", {"request": request, "message": "Not logged in"})
+    
+    user_token = db.query(JWT_TokenORM).filter_by(token=access_token).first()
     if (not user_token) or (user_token.is_blacklisted):
-        raise HTTPException(status_code=401, detail="Token does not exist or has been expired.")
+        return templates.TemplateResponse("main_page.html", {"request": request, "message": "Not logged in or session expired."})
     
     user_token.is_blacklisted = True
     db.commit()
-    return "Logged out"
+
+    response = RedirectResponse("/", status_code=303)
+    return response
 
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR USERS ################################################
