@@ -19,11 +19,6 @@ HASH_ALG = "HS256"
 PW_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-
-
 class User(BaseModel):
     id: int
     name: str

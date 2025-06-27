@@ -1,11 +1,10 @@
 from fastapi import FastAPI, Request, Form, Cookie, HTTPException, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import OAuth2PasswordBearer
 from pydantic import EmailStr
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from Backend_Classes import TokenResponse, User, Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
+from Backend_Classes import User, Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from typing import List
 from datetime import datetime, timezone, timedelta
 from database import engine, get_db
@@ -76,9 +75,11 @@ def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> str:
         raise HTTPException(status_code=401, detail="Invalid or expired JWT.")
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/")
-
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> UserORM:
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> UserORM:
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=404, detail=f"Token doesn't exist or expired.")
+    
     username = verify_jwt_token(token, db)
     user = db.query(UserORM).filter(UserORM.name == username).first()
     if not user:
