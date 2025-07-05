@@ -90,7 +90,8 @@ def jwt_required(request: Request, db: Session = Depends(get_db)) -> UserORM:
     return user
 
 
-'''def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> str:
+
+def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> str:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[HASH_ALG])
         username = payload.get("sub")
@@ -122,7 +123,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> UserORM
     user = db.query(UserORM).filter(UserORM.name == username).first()
     if not user:
         raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
-    return user'''
+    return user
+
 
 
 @api.get("/hub/", response_class=HTMLResponse)
@@ -362,7 +364,7 @@ def admin_user(name: str, password: str) -> bool:
     
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR TRANSACTIONS ################################################
-'''@api.get('/transactions/', response_model=dict[str, List[Transaction]])
+@api.get('/transactions/', response_model=dict[str, List[Transaction]])
 def load_transactions(current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db)):
     transactions = db.query(TransactionORM).filter(TransactionORM.user_id == current_user.id).all()
     if not transactions:
@@ -441,5 +443,5 @@ def delete_transaction(transaction_id: int, current_user: UserORM = Depends(get_
     
     db.delete(transaction)
     db.commit()
-    return {"Deleted transaction": Transaction.model_validate(transaction)}'''
+    return {"Deleted transaction": Transaction.model_validate(transaction)}
 
