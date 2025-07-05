@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Main Hub</title>
+    </head>
+    <body>
+        <h1>Welcome {{ username }}</h1>
+
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <div id="user_block">
+            <p>Here, you can select the option to edit or delete your account:</p>
+            <a href="http://127.0.0.1:8000/update_user/authentication/?next=update">Edit Account</a><br>
+            <a href="http://127.0.0.1:8000/delete_user/authentication/?next=delete">Delete Account</a><br><br>
+            <a href="http://127.0.0.1:8000/users/">Load All Users</a><br><br>
+        </div>
+
+        <form method="get" action="/logout/">
+            <input type="hidden" name="token" value="{{ access_token }}">
+            <button type="submit">Logout</button><br><br>
+        </form>
+    </body>
+</html>

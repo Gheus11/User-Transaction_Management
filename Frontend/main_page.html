@@ -4,18 +4,29 @@
         <title>Main Page</title>
     </head>
     <body>
-        <h2>Welcome, please insert login data</h2><br>
+        <h2>Welcome, please login or sign up</h2><br>
 
-        {% if message %}
-            <p style="color: red;">{{ message }}</p>
+        {% if message_create %}
+            <p style="color: green">{{ message_create }}</p>
+        {% elif message_update %}
+            <p style="color: green;">{{ message_update }}</p>
+        {% else %}
+            <p style="color: red">{{ message }}</p>
         {% endif %}
         
-        <form action="/login/" method="post">
-            <label for="username">Username:</label><br>
-            <input type="text" id="username" name="username" required><br>
-            <label for="password">Password</label><br>
-            <input type="password" id="password" name="password" required><br><br>
-            <input type="submit" value="login">
-        </form>
+        <div id="login">
+            <form action="/login/" method="post">
+                <label for="username">Username:</label><br>
+                <input type="text" id="username" name="username" required><br>
+                <label for="password">Password</label><br>
+                <input type="password" id="password" name="password" required><br><br>
+                <input type="submit" value="login"><br><br>
+            </form>
+        </div>
+        <div id="sign_up">
+            <form action="/create_user/" method="get">
+                <input type="submit" value="sign up"><br><br>
+            </form>
+        </div>
     </body>
 </html>

@@ -54,8 +54,8 @@ class UserORM(Base):
     password = Column("hashed_pw", String)
     is_admin = Column(Boolean)
 
-    transactions = relationship("TransactionORM", back_populates="user")
-    jwt_token = relationship("JWT_TokenORM", back_populates="user")
+    transactions = relationship("TransactionORM", back_populates="user", cascade="all, delete-orphan")
+    jwt_token = relationship("JWT_TokenORM", back_populates="user", cascade="all, delete-orphan")
 
 
 class TransactionORM(Base):

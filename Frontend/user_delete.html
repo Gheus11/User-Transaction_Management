@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>User Delete</title>
+    </head>
+    <body>
+        <h4>Delete Account</h4>
+
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <form action="/delete_user/" method="post">
+            <input type="hidden" name="method_override" value="delete">
+            <p style="color: red;">ARE YOU SURE YOU WANT TO DELETE YOUR ACCOUNT?</p>
+            <input type="submit" value="Delete Account"><br><br>
+        </form>
+    </body>
+</html>

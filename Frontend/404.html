@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Page Not Found</title>
+    </head>
+    <body>
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <h1>404 - Page Not Found</h1><br>
+        <p>The page you're looking for doesn't exist.</p><br><br>
+
+        <a href="http://127.0.0.1:8000/">Login</a><br>
+        <a href="http://127.0.0.1:8000/hub/">Main Hub</a>
+    </body>
+</html>

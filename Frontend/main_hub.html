@@ -1,14 +1,52 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <title>Login Success</title>
+        <title>Main Hub</title>
+        <style>
+            table {border-collapse: collapse; width: 80%; margin: auto;}
+            th, td {border: 1px solid #ccc; padding: 8px; text-align: left;}
+            th {background-color: #f2f2f2;}
+        </style>
     </head>
     <body>
-        <h1>Welcome {{ username }}</h1>
+        <h1>Welcome {{ username }}</h1><br><br>
+
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <div id="user">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Created at</th>
+                        <th>Admin</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.email }}</td>
+                        <td>{{ user.created_at }}</td>
+                        <td>{{ 'Yes' if user.is_admin else 'No' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div><br><br>
+
+        <div id="user_block">
+            <h4>Here, you can select the option to edit or delete your account:</h4>
+            <a href="http://127.0.0.1:8000/update_user/authentication/?next=update">Edit account</a><br>
+            <a href="http://127.0.0.1:8000/delete_user/authentication/?next=delete">Delete account</a><br><br><br>
+        </div>
 
         <form method="get" action="/logout/">
             <input type="hidden" name="token" value="{{ access_token }}">
-            <button type="submit">Logout</button>
+            <button type="submit">Logout</button><br><br>
         </form>
     </body>
 </html>

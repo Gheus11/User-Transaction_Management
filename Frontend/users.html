@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>All Users</title>
+        <style>
+            table {border-collapse: collapse; width: 80%; margin: auto;}
+            th, td {border: 1px solid #ccc; padding: 8px; text-align: left;}
+            th {background-color: #f2f2f2;}
+        </style>
+    </head>
+    <body>
+        <h2>Listing All Users</h2><br>
+
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Created at</th>
+                    <th>Admin</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.email }}</td>
+                        <td>{{ user.created_at }}</td>
+                        <td>{{ 'Yes' if user.is_admin else 'No' }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>        
+    </body>
+</html>
