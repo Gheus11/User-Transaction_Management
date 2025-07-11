@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>User Transactions</title>
+        <style>
+            table {border-collapse: collapse; width: 80%; margin: auto;}
+            th, td {border: 1px solid #ccc; padding: 8px; text-align: left;}
+            th {background-color: #f2f2f2;}
+        </style>
+    </head>
+    <body>
+        <h1>{{ username }}'s Transactions</h1><br><br>
+
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <div id="transactions">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>User ID</th>
+                        <th>Money Earned</th>
+                        <th>Date Time Earned</th>
+                        <th>Money Spent</th>
+                        <th>Date Time Spent</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transaction in transactions %}
+                        <tr>
+                            <td>{{ transaction.id }}</td>
+                            <td>{{ transaction.user_id }}</td>
+                            <td>{{ transaction.money_earned }}</td>
+                            <td>{{ transaction.date_time_earned }}</td>
+                            <td>{{ transaction.money_spent }}</td>
+                            <td>{{ transaction.date_time_spent }}</td>
+                            <td>{{ transaction.purpose }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div><br><br>
+    </body>
+</html>

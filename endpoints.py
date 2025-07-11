@@ -5,8 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import EmailStr
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from Backend_Classes import User, Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
-from typing import List
+from Backend_Classes import Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from datetime import datetime, timezone, timedelta
 from database import engine, get_db
 from jose import jwt, JWTError
@@ -88,43 +87,6 @@ def jwt_required(request: Request, db: Session = Depends(get_db)) -> UserORM:
     if not user:
         raise HTTPException(status_code=404, detail="Associated user doesn't exist.")
     return user
-
-
-
-def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> str:
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[HASH_ALG])
-        username = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Invalid JWT payload.")     
-        
-        requested_token = db.query(JWT_TokenORM).filter_by(token=token).first()
-        if not requested_token:
-            raise HTTPException(status_code=401, detail="Token does not exist.")
-        if requested_token.is_blacklisted:
-            raise HTTPException(status_code=401, detail="This JWT token has been blacklisted (Token Expired).")
-
-        if datetime.fromtimestamp(payload["exp"], tz=timezone.utc) < datetime.now(timezone.utc):
-              requested_token.is_blacklisted = True
-              db.commit()
-              raise HTTPException(status_code=401, detail="Expired JWT token.")
-           
-        return username
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired JWT.")
-    
-
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> UserORM:
-    token = request.cookies.get("access_token")
-    if not token:
-        raise HTTPException(status_code=404, detail=f"Token doesn't exist or expired.")
-    
-    username = verify_jwt_token(token, db)
-    user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail=f'User {username} does not exist.')
-    return user
-
 
 
 @api.get("/hub/", response_class=HTMLResponse)
@@ -352,50 +314,60 @@ def authenticate_user_form(request: Request, user: UserORM = Depends(jwt_require
     
     response.set_cookie(key="can_edit_or_delete", value="1", max_age=30)
     return response
-
-
-def admin_user(name: str, password: str) -> bool:
-    with engine.connect() as conn:
-        result = conn.execute(text("""SELECT * FROM users WHERE name = :name"""),
-                              {"name": name}).fetchone()
-        if result and verify_password(password, result.hashed_pw):
-            return result.is_admin
-        return False
     
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR TRANSACTIONS ################################################
-@api.get('/transactions/', response_model=dict[str, List[Transaction]])
-def load_transactions(current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db)):
-    transactions = db.query(TransactionORM).filter(TransactionORM.user_id == current_user.id).all()
+@api.get('/transactions/', response_class=HTMLResponse)
+def load_transactions(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+    username = user.name
+    transactions = db.query(TransactionORM).filter(TransactionORM.user_id == user.id).all()
     if not transactions:
-        raise HTTPException(status_code=404, detail=f'No transactions found for {current_user.name}.')
+        response = templates.TemplateResponse("transactions.html", {"request": request, "message": f"No transactions found for {username}.", "username": username})
+        response.headers["Cache-Control"] = "no-store"
+        return response
     
-    transactions_list = [Transaction.model_validate(transaction) for transaction in transactions]
-    print(transactions_list)
-    return {"User transactions": transactions_list}
+    response = templates.TemplateResponse("transactions.html", {"request": request, "transactions": transactions})
+    response.headers["Cache-Control"] = "no-store"
+    return response
     
 
-@api.post('/add_transaction/', response_model=dict[str, Transaction])
-def add_transaction(purpose: str, current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db), 
-                    money_earned: float | None = None, 
-                    money_spent: float | None = None):
-    if (money_earned is None) == (money_spent is None):
-        raise HTTPException(status_code=400, detail=f'Either money_earned or money_spent must be given.')
-    if money_earned is not None and money_earned <= 0:
-        raise HTTPException(status_code=400, detail=f'money_earned must be positive.')
-    if money_spent is not None and money_spent <= 0:
-        raise HTTPException(status_code=400, detail=f'money_spent must be positive.')
+@api.get('/add_transaction/', response_class=HTMLResponse)
+def get_add_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
+    response = templates.TemplateResponse("add_transaction.html", {"request": request, "user_type": user.is_admin})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@api.post('/add_transaction/', response_class=HTMLResponse)
+def add_transaction(request: Request, purpose: str = Form(), 
+                    user: UserORM = Depends(jwt_required), db: Session = Depends(get_db), 
+                    money_earned: str | None = Form(""),
+                    money_spent: str | None = Form("")):
+    money_earned_val = float(money_earned) if money_earned.strip() else None
+    money_spent_val = float(money_spent) if money_spent.strip() else None
+
+    if (money_earned_val is None) == (money_spent_val is None):
+        response = templates.TemplateResponse("add_transaction.html", {"request": request, "message": f"Please add an amount either for money earned or money spent."})
+        return response
+    if money_earned_val is not None and money_earned_val <= 0:
+        response = templates.TemplateResponse("add_transaction.html", {"request": request, "message": f"Money Earned must be positive."})
+        return response
+    if money_spent_val is not None and money_spent_val <= 0:
+        response = templates.TemplateResponse("add_transaction.html", {"request": request, "message": f"Money Spent must be positive."})
+        return response
     
-    money_earned = money_earned if money_earned else None
-    date_time_earned = datetime.now(timezone.utc) if money_earned is not None else None
-    money_spent = money_spent if money_spent else None
-    date_time_spent = datetime.now(timezone.utc) if money_spent is not None else None
+    money_earned = money_earned_val
+    date_time_earned = datetime.now(timezone.utc) if money_earned_val else None
+    money_spent = money_spent_val
+    date_time_spent = datetime.now(timezone.utc) if money_spent_val else None
     
-    transaction = TransactionORM(user_id=current_user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent, purpose=purpose)
+    transaction = TransactionORM(user_id=user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent, purpose=purpose)
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
-    return {"Added transaction": Transaction.model_validate(transaction)}
+
+    response = templates.TemplateResponse("add_transaction.html", {"request": request, "success_message": f"Transaction successfully added."})
+    return response
 
 
 @api.put('/update_transaction/', response_model=dict[str, Transaction])

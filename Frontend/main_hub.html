@@ -40,12 +40,18 @@
 
         <div id="user_block">
             <h4>Here, you can select the option to edit or delete your account:</h4>
-            <a href="http://127.0.0.1:8000/update_user/authentication/?next=update">Edit account</a><br>
-            <a href="http://127.0.0.1:8000/delete_user/authentication/?next=delete">Delete account</a><br><br><br>
+            <a href="http://127.0.0.1:8000/update_user/authentication/?next=update">Edit Account</a><br>
+            <a href="http://127.0.0.1:8000/delete_user/authentication/?next=delete">Delete Account</a><br><br>
+        </div>
+
+        <div id="transaction_block">
+            <h4>Here, you can select the option to add, check, or edit your transactions:</h4>
+            <a href="http://127.0.0.1:8000/transactions/">View Transactions</a><br>
+            <a href="http://127.0.0.1:8000/add_transaction/">Add Transaction</a><br>
         </div>
 
         <form method="get" action="/logout/">
-            <input type="hidden" name="token" value="{{ access_token }}">
+            <input type="hidden" name="token" value="{{ session_id }}">
             <button type="submit">Logout</button><br><br>
         </form>
     </body>

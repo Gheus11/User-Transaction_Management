@@ -1,7 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey
 from sqlalchemy.orm import relationship
-from enum import Enum
 from datetime import datetime
 from passlib.context import CryptContext
 from dotenv import load_dotenv
