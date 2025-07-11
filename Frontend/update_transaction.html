@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Edit Transaction</title>
+    </head>
+    <body>
+        <h4>Fill in the fields that you would like to change</h4>
+
+        {% if success_message %}
+            <p style="color: green;">{{ success_message }}</p>
+        {% else %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <form action="/update_transaction/" method="post">
+            <input type="hidden" name="method_override" value="put">
+            <label for="transaction_id">Transaction ID:</label><br>
+            <input type="number" id="transaction_id" name="transaction_id" required><br>
+            <label for="money_earned">Money Earned:</label><br>
+            <input type="number" id="money_earned" name="money_earned"><br>
+            <label for="money_spent">Money Spent:</label><br>
+            <input type="number" id="money_spent" name="money_spent"><br>
+            <label for="purpose">Purpose:</label><br>
+            <input type="text" id="purpose" name="purpose"><br><br>
+            <input type="submit" value="Edit"><br><br>
+        </form>
+
+        <div id="links">
+            <a href="http://127.0.0.1:8000/transactions/">View Transactions</a><br>
+            {% if user_type %}
+                <p>Return to <a href="http://127.0.0.1:8000/hub-admin/">Main Hub</a></p>
+            {% else %}
+                <p>Return to <a href="http://127.0.0.1:8000/hub/">Main Hub</a></p>
+            {% endif %}
+        </div>
+    </body>
+</html>

@@ -6,7 +6,9 @@
     <body>
         <h1>Welcome {{ username }}</h1>
 
-        {% if message %}
+        {% if success_message %}
+            <p style="color: green;">{{ success_message }}</p>
+        {% elif message %}
             <p style="color: red;">{{ message }}</p>
         {% endif %}
 
@@ -21,6 +23,8 @@
             <h4>Here, you can select the option to check or edit your transactions:</h4>
             <a href="http://127.0.0.1:8000/transactions/">View Transactions</a><br>
             <a href="http://127.0.0.1:8000/add_transaction/">Add Transaction</a><br>
+            <a href="http://127.0.0.1:8000/update_transaction/">Edit Transactions</a><br>
+            <a href="http://127.0.0.1:8000/delete_transaction/">Delete Transactions</a><br><br>
         </div>
 
         <form method="get" action="/logout/">

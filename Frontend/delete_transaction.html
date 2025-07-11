@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Delete Transaction</title>
+    </head>
+    <body>
+        <h4>Delete Transaction</h4>
+
+        {% if message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <form action="/delete_transaction/" method="post">
+            <input type="hidden" name="method_override" value="delete">
+            <label for="transaction_id">Transaction ID:</label><br>
+            <input type="number" id="transaction_id" name="transaction_id" required><br><br>
+            <input type="submit" value="Delete Transaction"><br><br>
+        </form>
+
+        <div id="links">
+            <a href="http://127.0.0.1:8000/transactions/">View Transactions</a><br>
+            {% if user_type %}
+                <p>Return to <a href="http://127.0.0.1:8000/hub-admin/">Main Hub</a></p>
+            {% else %}
+                <p>Return to <a href="http://127.0.0.1:8000/hub/">Main Hub</a></p>
+            {% endif %}
+        </div>
+    </body>
+</html>

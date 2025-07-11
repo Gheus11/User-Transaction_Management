@@ -1,13 +1,12 @@
-from fastapi import FastAPI, Request, Form, Cookie, HTTPException, Depends
+from fastapi import FastAPI, Request, Form, HTTPException, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import EmailStr
-from sqlalchemy import text
 from sqlalchemy.orm import Session
-from Backend_Classes import Transaction, UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
+from Backend_Classes import UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from datetime import datetime, timezone, timedelta
-from database import engine, get_db
+from database import get_db
 from jose import jwt, JWTError
 
 
@@ -326,7 +325,7 @@ def load_transactions(request: Request, user: UserORM = Depends(jwt_required), d
         response.headers["Cache-Control"] = "no-store"
         return response
     
-    response = templates.TemplateResponse("transactions.html", {"request": request, "transactions": transactions})
+    response = templates.TemplateResponse("transactions.html", {"request": request, "username": username, "transactions": transactions})
     response.headers["Cache-Control"] = "no-store"
     return response
     
@@ -370,30 +369,47 @@ def add_transaction(request: Request, purpose: str = Form(),
     return response
 
 
-@api.put('/update_transaction/', response_model=dict[str, Transaction])
-def update_transaction(transaction_id: int, current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db),
-                       money_earned: float | None = None,
-                       money_spent: float | None = None,
-                       purpose: str | None = None):
-    if money_earned is not None and money_earned <= 0:
-        raise HTTPException(status_code=400, detail=f'money_earned must be positive.')
-    if money_spent is not None and money_spent <= 0:
-        raise HTTPException(status_code=400, detail=f'money_spent must be positive.')
+@api.get('/update_transaction/', response_class=HTMLResponse)
+def get_update_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
+    response = templates.TemplateResponse("update_transaction.html", {"request": request, "user_type": user.is_admin})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@api.post('/update_transaction/', response_class=HTMLResponse)
+def update_transaction(request: Request, 
+                       transaction_id: int = Form(), 
+                       user: UserORM = Depends(jwt_required), 
+                       db: Session = Depends(get_db),
+                       method_override: str = Form(),
+                       money_earned: str | None = Form(""),
+                       money_spent: str | None = Form(""),
+                       purpose: str | None = Form("")):
+    if method_override != "put":
+        raise HTTPException(status_code=405, detail="Method not allowed.")
+    
+    money_earned_val = float(money_earned) if money_earned.strip() else None
+    money_spent_val = float(money_spent) if money_spent.strip() else None
+    
+    if money_earned_val is not None and money_earned_val <= 0:
+        return templates.TemplateResponse('update_transaction.html', {"request": request, "message": f"Money Earned must be positive."})
+    if money_spent_val is not None and money_spent_val <= 0:
+        return templates.TemplateResponse('update_transaction.html', {"request": request, "message": f"Money Spent must be positive."})
     
     transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
     if not transaction:
-        raise HTTPException(status_code=404, detail=f'Transaction {transaction_id} does not exist.')
-    if transaction.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail=f'User {current_user.name} not allowed to modify this entry.')
+        return templates.TemplateResponse('update_transaction.html', {"request": request, "message": f"Transaction {transaction_id} does not exist."})
+    if transaction.user_id != user.id:
+        return templates.TemplateResponse('update_transaction.html', {"request": request, "message": f"User {user.name} not allowed to modify this entry."})
     
-    if money_earned is not None:
-        transaction.money_earned = money_earned
+    if money_earned_val:
+        transaction.money_earned = money_earned_val
         transaction.date_time_earned = datetime.now(timezone.utc)
         transaction.money_spent = None
         transaction.date_time_spent= None
 
-    elif money_spent is not None:
-        transaction.money_spent = money_spent
+    elif money_spent_val:
+        transaction.money_spent = money_spent_val
         transaction.date_time_spent= datetime.now(timezone.utc)
         transaction.money_earned = None
         transaction.date_time_earned = None
@@ -402,18 +418,38 @@ def update_transaction(transaction_id: int, current_user: UserORM = Depends(get_
 
     db.commit()
     db.refresh(transaction)
-    return {"Updated transaction": Transaction.model_validate(transaction)}
+
+    response = templates.TemplateResponse('update_transaction.html', {"request": request, "success_message": f"Transaction #{transaction_id} updated successfully."})
+    return response
 
 
-@api.delete('/delete_transaction/', response_model=dict[str, Transaction])
-def delete_transaction(transaction_id: int, current_user: UserORM = Depends(get_current_user), db: Session = Depends(get_db)):    
+@api.get('/delete_transaction/', response_class=HTMLResponse)
+def get_delete_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
+    response = templates.TemplateResponse('delete_transaction.html', {"request": request, "user_type": user.is_admin})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@api.post('/delete_transaction/', response_class=HTMLResponse)
+def delete_transaction(request: Request, method_override: str = Form(), transaction_id: int = Form(), user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):  
+    if method_override != "delete":
+        raise HTTPException(status_code=405, detail="Method not allowed.")
+
     transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
     if not transaction:
-        raise HTTPException(status_code=404, detail=f'Transaction {transaction_id} does not exist.')
-    if transaction.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail=f'User {current_user.name} not allowed to modify this entry.')
+        return templates.TemplateResponse('delete_transaction.html', {"request": request, "message": f"Transaction #{transaction_id} does not exist."})
+    if transaction.user_id != user.id:
+        return templates.TemplateResponse('delete_transaction.html', {"request": request, "message": f"User {user.name} not allowed to modify this entry."})
     
     db.delete(transaction)
     db.commit()
-    return {"Deleted transaction": Transaction.model_validate(transaction)}
+
+    if user.is_admin:
+        response = RedirectResponse("/hub-admin/", status_code=303)
+        response.set_cookie(key="success_message", value="Transaction deleted.")
+        return response
+    
+    response = RedirectResponse("/hub/", status_code=303)
+    response.set_cookie(key="success_message", value="Transaction deleted.")
+    return response
 
