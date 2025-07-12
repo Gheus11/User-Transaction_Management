@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
-from Backend_Classes import UserORM, TransactionORM, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
+from Backend_Classes import UserORM, TransactionORM, Category, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from datetime import datetime, timezone, timedelta
 from database import get_db
 from jose import jwt, JWTError
@@ -338,7 +338,7 @@ def get_add_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
 
 
 @api.post('/add_transaction/', response_class=HTMLResponse)
-def add_transaction(request: Request, purpose: str = Form(), 
+def add_transaction(request: Request, category: str= Form(), purpose: str = Form(), 
                     user: UserORM = Depends(jwt_required), db: Session = Depends(get_db), 
                     money_earned: str | None = Form(""),
                     money_spent: str | None = Form("")):
@@ -355,12 +355,17 @@ def add_transaction(request: Request, purpose: str = Form(),
         response = templates.TemplateResponse("add_transaction.html", {"request": request, "message": f"Money Spent must be positive."})
         return response
     
+    if not category:
+        response = templates.TemplateResponse("add_transaction.html", {"request": request, "message": f"A category must be included."})
+        return response
+    
     money_earned = money_earned_val
     date_time_earned = datetime.now(timezone.utc) if money_earned_val else None
     money_spent = money_spent_val
     date_time_spent = datetime.now(timezone.utc) if money_spent_val else None
     
-    transaction = TransactionORM(user_id=user.id, money_earned=money_earned, date_time_earned=date_time_earned, money_spent=money_spent, date_time_spent=date_time_spent, purpose=purpose)
+    transaction = TransactionORM(user_id=user.id, money_earned=money_earned, date_time_earned=date_time_earned, 
+                                 money_spent=money_spent, date_time_spent=date_time_spent, category=category, purpose_details=purpose)
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
@@ -384,6 +389,7 @@ def update_transaction(request: Request,
                        method_override: str = Form(),
                        money_earned: str | None = Form(""),
                        money_spent: str | None = Form(""),
+                       category: Category | None = Form(),
                        purpose: str | None = Form("")):
     if method_override != "put":
         raise HTTPException(status_code=405, detail="Method not allowed.")
@@ -395,6 +401,9 @@ def update_transaction(request: Request,
         return templates.TemplateResponse('update_transaction.html', {"request": request, "message": f"Money Earned must be positive."})
     if money_spent_val is not None and money_spent_val <= 0:
         return templates.TemplateResponse('update_transaction.html', {"request": request, "message": f"Money Spent must be positive."})
+    
+    if not category:
+        return templates.TemplateResponse("add_transaction.html", {"request": request, "message": f"A category must be included."})
     
     transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
     if not transaction:
@@ -414,7 +423,8 @@ def update_transaction(request: Request,
         transaction.money_earned = None
         transaction.date_time_earned = None
     
-    transaction.purpose = purpose if purpose else transaction.purpose
+    transaction.category = category
+    transaction.purpose_details = purpose if purpose else transaction.purpose_details
 
     db.commit()
     db.refresh(transaction)

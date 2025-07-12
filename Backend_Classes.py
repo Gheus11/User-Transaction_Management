@@ -1,7 +1,6 @@
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Enum as AEnum
+from enum import Enum
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 import os
@@ -18,31 +17,6 @@ HASH_ALG = "HS256"
 PW_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-class User(BaseModel):
-    id: int
-    name: str
-    email: EmailStr
-    created_at: datetime
-    password: str
-    is_admin: bool
-
-    class Config:
-        from_attributes = True
-
-
-class Transaction(BaseModel):
-    id: int
-    user_id: int
-    money_earned: float | None
-    date_time_earned: datetime | None
-    money_spent: float | None
-    date_time_spent: datetime | None
-    purpose: str
-
-    class Config:
-        from_attributes = True
-
-
 class UserORM(Base):
     __tablename__ = "users" 
 
@@ -56,6 +30,16 @@ class UserORM(Base):
     transactions = relationship("TransactionORM", back_populates="user", cascade="all, delete-orphan")
     jwt_token = relationship("JWT_TokenORM", back_populates="user", cascade="all, delete-orphan")
 
+class Category(str, Enum):
+    groceries = "groceries"
+    clothing = "clothing"
+    repairs = "repairs"
+    subscription = "subscription"
+    rent = "rent"
+    restaurant = "restaurant"
+    entertainment = "entertainment"
+    gift = "gift"
+
 
 class TransactionORM(Base):
     __tablename__ = "transactions"
@@ -66,7 +50,8 @@ class TransactionORM(Base):
     date_time_earned = Column(DateTime, nullable=True)
     money_spent = Column(Float, nullable=True)
     date_time_spent = Column(DateTime, nullable=True)
-    purpose = Column(String)
+    purpose_details = Column(String, nullable=False)
+    category = Column(AEnum(Category), nullable=False)
 
     user = relationship("UserORM", back_populates="transactions")
 

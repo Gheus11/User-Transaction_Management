@@ -15,14 +15,28 @@
         <form action="/update_transaction/" method="post">
             <input type="hidden" name="method_override" value="put">
             <label for="transaction_id">Transaction ID:</label><br>
-            <input type="number" id="transaction_id" name="transaction_id" required><br>
+            <input type="number" id="transaction_id" name="transaction_id" required><br><br>
             <label for="money_earned">Money Earned:</label><br>
-            <input type="number" id="money_earned" name="money_earned"><br>
+            <input type="number" id="money_earned" name="money_earned"><br><br>
             <label for="money_spent">Money Spent:</label><br>
-            <input type="number" id="money_spent" name="money_spent"><br>
+            <input type="number" id="money_spent" name="money_spent"><br><br>
+
+            <label for="category">Category:</label><br>
+            <select id="category" name="category" required>
+                <option value="">Please Select</option>
+                <option value="groceries">Groceries</option>
+                <option value="clothing">Clothing</option>
+                <option value="repairs">Repairs</option>
+                <option value="subscription">Subscription</option>
+                <option value="rent">Rent</option>
+                <option value="restaurant">Restaurant</option>
+                <option value="entertainment">Entertainment</option>
+                <option value="gift">Gift</option>
+            </select><br><br>
+
             <label for="purpose">Purpose:</label><br>
             <input type="text" id="purpose" name="purpose"><br><br>
-            <input type="submit" value="Edit"><br><br>
+            <input type="submit" value="Edit"><br><br><br>
         </form>
 
         <div id="links">

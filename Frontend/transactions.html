@@ -25,6 +25,7 @@
                         <th>Date Time Earned</th>
                         <th>Money Spent</th>
                         <th>Date Time Spent</th>
+                        <th>Category</th>
                         <th>Purpose</th>
                     </tr>
                 </thead>
@@ -37,7 +38,8 @@
                             <td>{{ transaction.date_time_earned }}</td>
                             <td>{{ transaction.money_spent }}</td>
                             <td>{{ transaction.date_time_spent }}</td>
-                            <td>{{ transaction.purpose }}</td>
+                            <td>{{ transaction.category.value }}</td>
+                            <td>{{ transaction.purpose_details }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
