@@ -9,7 +9,10 @@
         </style>
     </head>
     <body>
-        <h1>{{ username }}'s Transactions</h1><br><br>
+        <h1>{{ username }}'s Transactions</h1><br>
+
+        <a href="http://127.0.0.1:8000/transactions/money_earned/">Money Earned</a><br>
+        <a href="http://127.0.0.1:8000/transactions/money_spent/">Money Spent</a><br><br><br>
 
         {% if message %}
             <p style="color: red;">{{ message }}</p>
@@ -44,6 +47,6 @@
                     {% endfor %}
                 </tbody>
             </table>
-        </div><br><br>
+        </div><br><br><br>
     </body>
 </html>

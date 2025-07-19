@@ -4,10 +4,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
+import pandas as pd
+from jose import jwt, JWTError
 from Backend_Classes import UserORM, TransactionORM, Category, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from datetime import datetime, timezone, timedelta
 from database import get_db
-from jose import jwt, JWTError
 
 
 api = FastAPI()
@@ -463,3 +464,38 @@ def delete_transaction(request: Request, method_override: str = Form(), transact
     response.set_cookie(key="success_message", value="Transaction deleted.")
     return response
 
+
+################################################ START OF HTTP REQUEST FUNCTIONS FOR ANALYSIS ################################################
+@api.get('/transactions/money_earned/', response_class=HTMLResponse)
+def get_monthly_money_earned(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+    transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_earned.isnot(None)))
+
+    df = pd.read_sql(transactions.statement, db.bind)
+    df['date_time_earned'] = pd.to_datetime(df['date_time_earned'])
+    df['month'] = df['date_time_earned'].dt.to_period("M")
+
+    grouped = df.groupby('month')['money_earned'].sum().reset_index()
+    grouped['month'] = grouped['month'].dt.strftime('%B %Y')
+
+    response = templates.TemplateResponse("money_earned.html", {"request": request, "earnings": grouped.to_dict(orient="records")})
+    return response
+
+
+@api.get('/transactions/money_spent/', response_class=HTMLResponse)
+def get_monthly_money_spent(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+    transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_spent.isnot(None)))
+
+    df = pd.read_sql(transactions.statement, db.bind)
+    df['date_time_spent'] = pd.to_datetime(df['date_time_spent'])
+    df['month'] = df["date_time_spent"].dt.to_period("M")
+
+    grouped = df.groupby('month')['money_spent'].sum().reset_index()
+    grouped['month'] = grouped['month'].dt.strftime('%B %Y')
+
+    response = templates.TemplateResponse('money_spent.html', {"request": request, "expenditures": grouped.to_dict(orient="records")})
+    return response
+
+
+'''@api.get('/transactions/money_earned/analysis/')
+
+@api.get('/transactions/money_spent/analysis/')'''

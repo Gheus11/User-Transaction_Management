@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Money Earned</title>
+        <style>
+            table {border-collapse: collapse; width: 80%; margin: auto;}
+            th, td {border: 1px solid #ccc; padding: 8px; text-align: left;}
+            th {background-color: #f2f2f2;}
+        </style>
+    </head>
+    <body>
+        {% if success_message %}
+            <p style="color: green;">{{ success_message }}</p>
+        {% elif message %}
+            <p style="color: red;">{{ message }}</p>
+        {% endif %}
+
+        <div id="transactions">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Month</th>
+                        <th>Money Earned</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        {% for row in earnings %}
+                        <td>{{ row.month }}</td>
+                        <td>{{ row.money_earned }}</td>
+                        {% endfor %}
+                    </tr>
+                </tbody>
+            </table>
+        </div><br><br>
+    </body>
+</html>

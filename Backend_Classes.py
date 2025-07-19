@@ -31,6 +31,10 @@ class UserORM(Base):
     jwt_token = relationship("JWT_TokenORM", back_populates="user", cascade="all, delete-orphan")
 
 class Category(str, Enum):
+    work = "work"
+    family = "family"
+    friend = "friend"
+    bank = "bank"
     groceries = "groceries"
     clothing = "clothing"
     repairs = "repairs"

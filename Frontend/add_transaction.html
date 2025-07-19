@@ -14,18 +14,22 @@
 
         <form action="/add_transaction/" method="post">
             <label for="money_earned">Money Earned:</label><br>
-            <input type="number" id="money_earned" name="money_earned"><br><br>
+            <input type="number" id="money_earned" name="money_earned" step="0.01"><br><br>
             <label for="money_spent">Money Spent:</label><br>
-            <input type="number" id="money_spent" name="money_spent"><br><br>
+            <input type="number" id="money_spent" name="money_spent" step="0.01"><br><br>
 
             <label for="category">Category:</label><br>
             <select id="category" name="category" required>
                 <option value="">Please Select</option>
+                <option value="family">Family</option>
+                <option value="friend">Friend</option>
+                <option value="work">Work</option>
+                <option value="bank">Bank</option>
+                <option value="rent">Rent</option>
+                <option value="subscription">Subscription</option>
+                <option value="repairs">Repairs</option>
                 <option value="groceries">Groceries</option>
                 <option value="clothing">Clothing</option>
-                <option value="repairs">Repairs</option>
-                <option value="subscription">Subscription</option>
-                <option value="rent">Rent</option>
                 <option value="restaurant">Restaurant</option>
                 <option value="entertainment">Entertainment</option>
                 <option value="gift">Gift</option>
