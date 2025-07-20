@@ -20,7 +20,19 @@
                 <thead>
                     <tr>
                         <th>Month</th>
-                        <th>Money Spent</th>
+                        <th>Total Earned</th>
+                        <th>work</th>
+                        <th>Family</th>
+                        <th>Friend</th>
+                        <th>Bank</th>
+                        <th>Groceries</th>
+                        <th>Clothing</th>
+                        <th>Repairs</th>
+                        <th>Subscription</th>
+                        <th>Rent</th>
+                        <th>Restaurant</th>
+                        <th>Entertainment</th>
+                        <th>Gift</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -28,6 +40,13 @@
                         {% for row in expenditures %}
                         <td>{{ row.month }}</td>
                         <td>{{ row.money_spent }}</td>
+                        {% endfor %}
+                        {% for category in categories %}
+                            {% if category in spending_by_cat %}
+                            <td>{{ "%.2f"|format(spending_by_cat[category]) }}</td>
+                            {% else %}
+                            <td><p>0.00</p></td>
+                            {% endif %}
                         {% endfor %}
                     </tr>
                 </tbody>

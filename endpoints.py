@@ -468,34 +468,42 @@ def delete_transaction(request: Request, method_override: str = Form(), transact
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR ANALYSIS ################################################
 @api.get('/transactions/money_earned/', response_class=HTMLResponse)
 def get_monthly_money_earned(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+    categories = ["work", "family", "friend", "bank", "groceries", "clothing", "repairs", "subscription", "rent", "restaurant", "entertainment", "gift"]
     transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_earned.isnot(None)))
-
     df = pd.read_sql(transactions.statement, db.bind)
+    
     df['date_time_earned'] = pd.to_datetime(df['date_time_earned'])
     df['month'] = df['date_time_earned'].dt.to_period("M")
+    grouped_total = df.groupby('month')['money_earned'].sum().reset_index()
+    grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
+    grouped_total = grouped_total.to_dict(orient="records")
 
-    grouped = df.groupby('month')['money_earned'].sum().reset_index()
-    grouped['month'] = grouped['month'].dt.strftime('%B %Y')
+    df['category'] = df['category'].apply(lambda c: c.value)
+    grouped_category = df.groupby('category')['money_earned'].sum().reset_index()
+    reshaped_grouped_category = grouped_category.set_index('category').T
+    grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
 
-    response = templates.TemplateResponse("money_earned.html", {"request": request, "earnings": grouped.to_dict(orient="records")})
+    response = templates.TemplateResponse("money_earned.html", {"request": request, "categories": categories, "earnings": grouped_total, "earning_by_cat": grouped_category_dict})
     return response
 
 
 @api.get('/transactions/money_spent/', response_class=HTMLResponse)
 def get_monthly_money_spent(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+    categories = ["work", "family", "friend", "bank", "groceries", "clothing", "repairs", "subscription", "rent", "restaurant", "entertainment", "gift"]
     transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_spent.isnot(None)))
-
     df = pd.read_sql(transactions.statement, db.bind)
+    
     df['date_time_spent'] = pd.to_datetime(df['date_time_spent'])
     df['month'] = df["date_time_spent"].dt.to_period("M")
+    grouped_total = df.groupby('month')['money_spent'].sum().reset_index()
+    grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
+    grouped_total = grouped_total.to_dict(orient="records")
 
-    grouped = df.groupby('month')['money_spent'].sum().reset_index()
-    grouped['month'] = grouped['month'].dt.strftime('%B %Y')
+    df['category'] = df['category'].apply(lambda c: c.value)
+    grouped_category = df.groupby('category')['money_spent'].sum().reset_index()
+    reshaped_grouped_category = grouped_category.set_index('category').T
+    grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
 
-    response = templates.TemplateResponse('money_spent.html', {"request": request, "expenditures": grouped.to_dict(orient="records")})
+    response = templates.TemplateResponse('money_spent.html', {"request": request, "categories": categories, "expenditures": grouped_total, "spending_by_cat": grouped_category_dict})
     return response
 
-
-'''@api.get('/transactions/money_earned/analysis/')
-
-@api.get('/transactions/money_spent/analysis/')'''
