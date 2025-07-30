@@ -19,10 +19,16 @@ templates = Jinja2Templates(directory="Frontend")
 
 ################################################ LOGIN + JWT + LOGOUT ################################################
 @api.get("/")
-def main_page(request: Request):
+def main_page(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if auth_token:
+        ok, result = challenge_jwt(auth_token, db)
+        if ok:
+            user = result
+            response = RedirectResponse("/hub-admin/" if user.is_admin else "/hub/", status_code=303)
+            return response
+
     message_create = request.cookies.get("message_create")
     message_update = request.cookies.get("message_update")
-    message = request.cookies.get("messsage")
     if message_create:
         response = templates.TemplateResponse("main_page.html", {"request": request, "message_create": message_create}) 
     elif message_update:
@@ -30,12 +36,9 @@ def main_page(request: Request):
     else:
         response = templates.TemplateResponse("main_page.html", {"request": request})
 
-    if message_create:
-        response.delete_cookie("message_create")
-    if message_update:
-        response.delete_cookie("message_update")
-    if message:
-        response.delete_cookie("message")
+    response.delete_cookie("message_create")
+    response.delete_cookie("message_update")
+    response.delete_cookie("message")
         
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -67,7 +70,7 @@ def main_hub(request: Request, auth_token: str = Cookie(None), db: Session = Dep
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
     
     message = request.cookies.get("message")
@@ -76,6 +79,7 @@ def main_hub(request: Request, auth_token: str = Cookie(None), db: Session = Dep
     response = templates.TemplateResponse("main_hub.html", {"request": request, "username": user.name, "user": user, "message": message})
     if message:
         response.delete_cookie("message")
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -87,15 +91,19 @@ def main_hub(request: Request, auth_token: str = Cookie(None), db: Session = Dep
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
     
     message = request.cookies.get("message")
     user = result
 
+    if not user.is_admin:
+        return RedirectResponse("/hub/", status_code=303)
+
     response = templates.TemplateResponse("main_hub-admin.html", {"request": request, "username": user.name, "message": message})
     if message:
         response.delete_cookie("message")
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -107,7 +115,7 @@ def logout(auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
     
     user = result
@@ -163,19 +171,19 @@ def status_code_handler(request: Request, exec: StarletteHTTPException):
 def load_all_users(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
     if not user.is_admin:
         response = RedirectResponse("/hub/", status_code=303)
-        response.set_cookie(key="message", value="User not allowed.", max_age=5)
+        response.set_cookie(key="message", value="User not allowed.", max_age=1)
         return response
     
     users = db.query(UserORM).all()
@@ -202,7 +210,7 @@ def add_user(request: Request, name: str = Form(), email: EmailStr = Form(), pas
     db.refresh(user)
 
     response = RedirectResponse("/", status_code=303)
-    response.set_cookie(key="message_create", value="Account successfully created!", max_age=5)
+    response.set_cookie(key="message_create", value="Account successfully created!", max_age=1)
     return response
 
 
@@ -210,13 +218,13 @@ def add_user(request: Request, name: str = Form(), email: EmailStr = Form(), pas
 def update_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -246,13 +254,13 @@ def update_user(request: Request,
     
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -266,7 +274,7 @@ def update_user(request: Request,
             response = RedirectResponse("/hub-admin/", status_code=303)
         else:
             response = RedirectResponse("/hub/", status_code=303)
-        response.set_cookie(key="expired_auth", value="Edit session expired, please try again.", max_age=5)
+        response.set_cookie(key="expired_auth", value="Edit session expired, please try again.", max_age=1)
         return response
         
     if all(not detail for detail in (name, email, password)):
@@ -296,7 +304,7 @@ def update_user(request: Request,
 
     response = RedirectResponse("/", status_code=303)
     response.delete_cookie("can_edit_or_delete")
-    response.set_cookie(key="message_update", value="Account info updated successfully! Please login again.", max_age=5)
+    response.set_cookie(key="message_update", value="Account info updated successfully! Please login again.", max_age=1)
     return response
 
 
@@ -304,13 +312,13 @@ def update_user(request: Request,
 def delete_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -334,13 +342,13 @@ def delete_user(request: Request, auth_token: str = Cookie(None), method_overrid
     
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -350,7 +358,7 @@ def delete_user(request: Request, auth_token: str = Cookie(None), method_overrid
             response = RedirectResponse("/hub-admin/", status_code=303)
         else:
             response = RedirectResponse("/hub/", status_code=303)
-        response.set_cookie(key="expired_auth", value="Delete session expired, please try again.", max_age=5)
+        response.set_cookie(key="expired_auth", value="Delete session expired, please try again.", max_age=1)
         return response
 
     user = db.query(UserORM).filter(UserORM.name == user.name).first()
@@ -362,7 +370,7 @@ def delete_user(request: Request, auth_token: str = Cookie(None), method_overrid
 
     response = RedirectResponse("/", status_code=303)
     response.delete_cookie("can_edit_or_delete")
-    response.set_cookie(key="message_update", value="Account was deleted.", max_age=5)
+    response.set_cookie(key="message_update", value="Account was deleted.", max_age=1)
     return response
 
 
@@ -371,13 +379,13 @@ def delete_user(request: Request, auth_token: str = Cookie(None), method_overrid
 def get_authetication_form(request: Request, auth_token: str = Cookie(None), db:Session = Depends(get_db), next: str = "update"):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     response = templates.TemplateResponse("authentication.html", {"request": request, "next": next})
@@ -390,13 +398,13 @@ def get_authetication_form(request: Request, auth_token: str = Cookie(None), db:
 def authenticate_user_form(request: Request, auth_token: str = Cookie(None), username: str = Form(), password: str = Form(), next: str = Form("update"), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -423,13 +431,13 @@ def authenticate_user_form(request: Request, auth_token: str = Cookie(None), use
 def load_transactions(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     no_tx_message = request.cookies.get("no_tx_message")
@@ -453,13 +461,13 @@ def load_transactions(request: Request, auth_token: str = Cookie(None), db: Sess
 def get_add_tx_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -475,13 +483,13 @@ def add_transaction(request: Request, category: str= Form(), purpose: str = Form
                     money_spent: str | None = Form("")):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -521,13 +529,13 @@ def add_transaction(request: Request, category: str= Form(), purpose: str = Form
 def get_update_tx_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -551,13 +559,13 @@ def update_transaction(request: Request,
     
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -605,13 +613,13 @@ def update_transaction(request: Request,
 def get_delete_tx_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -627,13 +635,13 @@ def delete_transaction(request: Request, method_override: str = Form(), transact
     
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -653,7 +661,7 @@ def delete_transaction(request: Request, method_override: str = Form(), transact
         return response
     
     response = RedirectResponse("/hub/", status_code=303)
-    response.set_cookie(key="success_message", value="Transaction deleted.", max_age=5)
+    response.set_cookie(key="success_message", value="Transaction deleted.", max_age=1)
     return response
 
 
@@ -662,13 +670,13 @@ def delete_transaction(request: Request, method_override: str = Form(), transact
 def get_monthly_money_earned(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
@@ -703,13 +711,13 @@ def get_monthly_money_earned(request: Request, auth_token: str = Cookie(None), d
 def get_monthly_money_spent(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
         return response
     
     ok, result = challenge_jwt(auth_token, db)
     if not ok:
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="message", value=result, max_age=5)
+        response.set_cookie(key="message", value=result, max_age=1)
         return response
 
     user = result
