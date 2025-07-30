@@ -14,8 +14,10 @@
         <a href="http://127.0.0.1:8000/transactions/money_earned/">Money Earned</a><br>
         <a href="http://127.0.0.1:8000/transactions/money_spent/">Money Spent</a><br><br><br>
 
-        {% if message %}
-            <p style="color: red;">{{ message }}</p>
+        {% if no_tx_message %}
+            <p style="color: purple;">{{ no_tx_message }}</p>
+        {% elif message %}
+            <p style="color: orange;">{{ message }}</p>
         {% endif %}
 
         <div id="transactions">
@@ -37,9 +39,9 @@
                         <tr>
                             <td>{{ transaction.id }}</td>
                             <td>{{ transaction.user_id }}</td>
-                            <td>{{ transaction.money_earned }}</td>
+                            <td>{{ "%.2f"|format(transaction.money_earned) if transaction.money_earned else transaction.money_earned }}</td>
                             <td>{{ transaction.date_time_earned }}</td>
-                            <td>{{ transaction.money_spent }}</td>
+                            <td>{{ "%.2f"|format(transaction.money_spent) if transaction.money_spent else transaction.money_spent }}</td>
                             <td>{{ transaction.date_time_spent }}</td>
                             <td>{{ transaction.category.value }}</td>
                             <td>{{ transaction.purpose_details }}</td>

@@ -37,10 +37,12 @@
                 </thead>
                 <tbody>
                     <tr>
-                        {% for row in earnings %}
-                        <td>{{ row.month }}</td>
-                        <td>{{ row.money_earned }}</td>
-                        {% endfor %}
+                        {% if earnings %}
+                            {% for row in earnings %}
+                            <td>{{ row.month }}</td>
+                            <td>{{ row.money_earned }}</td>
+                            {% endfor %}
+                        {% endif %}
                         {% for category in categories %}
                             {% if category in earning_by_cat %}
                             <td>{{ "%.2f"|format(earning_by_cat[category]) }}</td>

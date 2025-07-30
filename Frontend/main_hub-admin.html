@@ -14,9 +14,9 @@
 
         <div id="user_block">
             <p>Here, you can select the option to edit or delete your account:</p>
-            <a href="http://127.0.0.1:8000/update_user/authentication/?next=update">Edit Account</a><br>
-            <a href="http://127.0.0.1:8000/delete_user/authentication/?next=delete">Delete Account</a><br><br>
-            <a href="http://127.0.0.1:8000/users/">Load All Users</a><br><br>
+            <a href="http://127.0.0.1:8000/update_user/authentication/?next=update" id="edit_account">Edit Account</a><br>
+            <a href="http://127.0.0.1:8000/delete_user/authentication/?next=delete" id="">Delete Account</a><br><br>
+            <a href="http://127.0.0.1:8000/users/" id="load_all_users">Load All Users</a><br><br>
         </div>
 
         <div id="transaction_block">
@@ -27,9 +27,11 @@
             <a href="http://127.0.0.1:8000/delete_transaction/">Delete Transactions</a><br><br>
         </div>
 
-        <form method="get" action="/logout/">
+        <form id="logout-form" method="get" action="/logout/">
             <input type="hidden" name="token" value="{{ access_token }}">
             <button type="submit">Logout</button><br><br>
         </form>
+
+        <script src="/static/user_logout.js"></script>
     </body>
 </html>

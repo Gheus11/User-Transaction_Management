@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Enum as AEnum
 from enum import Enum
 from sqlalchemy.orm import relationship
+from pydantic import BaseModel
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 import os
@@ -15,6 +16,11 @@ if not SECRET_KEY:
 
 HASH_ALG = "HS256"
 PW_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+class LoginData(BaseModel):
+    username: str
+    password: str
 
 
 class UserORM(Base):

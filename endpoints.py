@@ -1,17 +1,20 @@
-from fastapi import FastAPI, Request, Form, HTTPException, Depends
+from fastapi import FastAPI, Request, Form, HTTPException, Depends, Cookie
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 import pandas as pd
 from jose import jwt, JWTError
-from Backend_Classes import UserORM, TransactionORM, Category, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
+from typing import Optional
+from Backend_Classes import LoginData, UserORM, TransactionORM, Category, JWT_TokenORM, hash_password, verify_password, SECRET_KEY, HASH_ALG
 from datetime import datetime, timezone, timedelta
 from database import get_db
 
 
 api = FastAPI()
+api.mount("/static/", StaticFiles(directory="Frontend/JS"), name="static")
 templates = Jinja2Templates(directory="Frontend")
 
 ################################################ LOGIN + JWT + LOGOUT ################################################
@@ -19,6 +22,7 @@ templates = Jinja2Templates(directory="Frontend")
 def main_page(request: Request):
     message_create = request.cookies.get("message_create")
     message_update = request.cookies.get("message_update")
+    message = request.cookies.get("messsage")
     if message_create:
         response = templates.TemplateResponse("main_page.html", {"request": request, "message_create": message_create}) 
     elif message_update:
@@ -30,33 +34,90 @@ def main_page(request: Request):
         response.delete_cookie("message_create")
     if message_update:
         response.delete_cookie("message_update")
+    if message:
+        response.delete_cookie("message")
+        
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
-@api.post("/login/", response_class=HTMLResponse)
-def log_in(request: Request, username: str = Form(), password: str = Form(), db: Session = Depends(get_db)):
-    user = db.query(UserORM).filter(UserORM.name == username).first()
-    if not user or not verify_password(password, user.password):
-        return templates.TemplateResponse("main_page.html", {"request": request, "message": "Incorrect username or password."})
+@api.post("/login/")
+def log_in(data: LoginData, db: Session = Depends(get_db)):
+    user = db.query(UserORM).filter(UserORM.name == data.username).first()
+    if not user or not verify_password(data.password, user.password):
+        message = "Incorrect username or password."
+        return JSONResponse(status_code = 401, content = {"message": message})
         
-    jwt_token = generate_jwt_token(username)
+    jwt_token = generate_jwt_token(data.username)
     token_payload = jwt.decode(jwt_token, SECRET_KEY, algorithms=[HASH_ALG])
     token_expiry = datetime.fromtimestamp(token_payload["exp"], tz=timezone.utc)
     jwt_token_orm = JWT_TokenORM(user_id=user.id ,token=jwt_token, date_time_created=datetime.now(timezone.utc), expiry=token_expiry)
 
     db.add(jwt_token_orm)
     db.commit()
+    jwt_ = jwt_token_orm.token
+    return JSONResponse(content = {"username": user.name, "jwt": jwt_, "admin_status": user.is_admin})
 
-    jwt_id = str(jwt_token_orm.id)
 
-    if user.is_admin:
-        response = RedirectResponse(url="/hub-admin/", status_code=303)
-    else:
-        response = RedirectResponse(url="/hub/", status_code=303)
+@api.get("/hub/", response_class=HTMLResponse)
+def main_hub(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        return RedirectResponse("/", status_code=303)
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+    
+    message = request.cookies.get("message")
+    user = result
 
-    response.set_cookie(key="session_id", value=jwt_id, httponly=True, secure=False, samesite="lax", max_age=900)
-    response.set_cookie(key="username", value=username, httponly=False, max_age=900)
+    response = templates.TemplateResponse("main_hub.html", {"request": request, "username": user.name, "user": user, "message": message})
+    if message:
+        response.delete_cookie("message")
     return response
+
+
+@api.get("/hub-admin/", response_class=HTMLResponse)
+def main_hub(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        return RedirectResponse("/", status_code=303)
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+    
+    message = request.cookies.get("message")
+    user = result
+
+    response = templates.TemplateResponse("main_hub-admin.html", {"request": request, "username": user.name, "message": message})
+    if message:
+        response.delete_cookie("message")
+    return response
+
+
+@api.get("/logout/")
+def logout(auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        return JSONResponse(status_code=401, content={"message": "Invalid user or session."})
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+    
+    user = result
+    user_token = db.query(JWT_TokenORM).filter(JWT_TokenORM.token == auth_token, JWT_TokenORM.user_id == user.id).first()
+    if (not user_token) or (user_token.is_blacklisted):
+        return JSONResponse(status_code=401, content={"message": "Not logged in or session expired."})
+    
+    user_token.is_blacklisted = True
+    db.commit()
+    return JSONResponse(status_code=200, content={})
 
 
 def generate_jwt_token(username: str) -> str:
@@ -65,69 +126,27 @@ def generate_jwt_token(username: str) -> str:
     return jwt.encode(to_encode, SECRET_KEY, algorithm=HASH_ALG)
 
 
-def jwt_required(request: Request, db: Session = Depends(get_db)) -> UserORM:
-    token_id = request.cookies.get("session_id")
-    if not token_id:
-        raise HTTPException(status_code=401, detail="JWT missing or expired.")
+def challenge_jwt(auth_token: str, db: Session) -> tuple[bool, Optional[str | UserORM]]:
+    if not auth_token:
+        return False, "JWT missing or expired."
     
     try:
-        token = db.query(JWT_TokenORM).filter(JWT_TokenORM.id == token_id).first()
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Invalid session ID.")
-    
-    if not token or token.is_blacklisted:
-        raise HTTPException(status_code=404, detail="Token doesn't exist or expired.")
-
-    try:
-        jwt.decode(token.token, SECRET_KEY, algorithms=[HASH_ALG])
+        payload = jwt.decode(auth_token, SECRET_KEY, algorithms=[HASH_ALG])
+        username = payload.get("sub")
+        if not username:
+            return False, "Invalid JWT payload."
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token.")    
+        return False, "Invalid token."
     
-    user = db.query(UserORM).filter(UserORM.id == token.user_id).first()
+    user = db.query(UserORM).filter(UserORM.name == username).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Associated user doesn't exist.")
-    return user
-
-
-@api.get("/hub/", response_class=HTMLResponse)
-def main_hub(request: Request, user: UserORM = Depends(jwt_required)):
-    username = user.name
-    message = request.cookies.get("message")
-    expired_auth = request.cookies.get("expired_auth")
-    response = templates.TemplateResponse("main_hub.html", {"request": request, "username": username, "user": user, "message": message if message else expired_auth})
-    response.delete_cookie("message")
-    return response
-
-
-@api.get("/hub-admin/", response_class=HTMLResponse)
-def main_hub(request: Request, user: UserORM = Depends(jwt_required)):
-    if not user.is_admin:
-        response = RedirectResponse("/hub/", status_code=303)
-        response.set_cookie(key="message", value="User not allowed.", max_age=5)
-        return response
-    expired_auth = request.cookies.get("expired_auth")
-    username = request.cookies.get("username")
-    response = templates.TemplateResponse("main_hub-admin.html", {"request": request, "username": username, "message": expired_auth})
-    return response
-
-
-@api.get("/logout/", response_class=HTMLResponse)
-def logout(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
-    session_id = request.cookies.get("session_id")
-    if not session_id:
-        return templates.TemplateResponse("main_page.html", {"request": request, "message": "Not logged in"})
+        return False, "User does not exist."
     
-    user_token = db.query(JWT_TokenORM).filter_by(id=session_id).first()
-    if (not user_token) or (user_token.is_blacklisted):
-        return templates.TemplateResponse("main_page.html", {"request": request, "message": "Not logged in or session expired."})
-    
-    user_token.is_blacklisted = True
-    db.commit()
+    token = db.query(JWT_TokenORM).filter(JWT_TokenORM.token == auth_token, JWT_TokenORM.user_id == user.id).first()
+    if not token or token.is_blacklisted:
+        return False, "Token doesn't exist or expired."
 
-    response = RedirectResponse("/", status_code=303)
-    response.delete_cookie("session_id")
-    response.delete_cookie("username")
-    return response
+    return True, user
 
 
 @api.exception_handler(StarletteHTTPException)
@@ -141,7 +160,19 @@ def status_code_handler(request: Request, exec: StarletteHTTPException):
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR USERS ################################################
 @api.get("/users/", response_class=HTMLResponse)
-def load_all_users(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+def load_all_users(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     if not user.is_admin:
         response = RedirectResponse("/hub/", status_code=303)
         response.set_cookie(key="message", value="User not allowed.", max_age=5)
@@ -176,7 +207,19 @@ def add_user(request: Request, name: str = Form(), email: EmailStr = Form(), pas
 
 
 @api.get("/update_user/", response_class=HTMLResponse)
-def update_form(request: Request, user: UserORM = Depends(jwt_required)):
+def update_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     can_edit = request.cookies.get("can_edit_or_delete")
     if can_edit != "1":
         if user.is_admin:
@@ -192,7 +235,7 @@ def update_form(request: Request, user: UserORM = Depends(jwt_required)):
 
 @api.post("/update_user/", response_class=HTMLResponse)
 def update_user(request: Request, 
-                user: UserORM = Depends(jwt_required),
+                auth_token: str = Cookie(None),
                 db: Session = Depends(get_db),
                 method_override: str = Form(),
                 name: str | None = Form(None),
@@ -201,8 +244,19 @@ def update_user(request: Request,
     if method_override.lower() != "put":
         raise HTTPException(status_code=405, detail="Method not allowed.")
     
-    username = request.cookies.get("username")
-    user = db.query(UserORM).filter(UserORM.name == username).first()
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
+    user = db.query(UserORM).filter(UserORM.name == user.name).first()
     if not user:
         return templates.TemplateResponse("user_update.html", {"request": request, "message": f"User {name} does not exists."})
     
@@ -231,19 +285,35 @@ def update_user(request: Request,
             return templates.TemplateResponse("user_update.html", {"request": request, "message": f"Password must contain 3 or more characters"})
         user.password = hash_password(password)
 
+    user_token = db.query(JWT_TokenORM).filter(JWT_TokenORM.token == auth_token).first()
+    if not user_token:
+        return JSONResponse(status_code=401, content={"message": "Invalid user or session."})
+    user_token.is_blacklisted = True
+
     db.commit()
     db.refresh(user)
+    db.refresh(user_token)
 
     response = RedirectResponse("/", status_code=303)
-    response.delete_cookie("session_id")
-    response.delete_cookie("username")
     response.delete_cookie("can_edit_or_delete")
     response.set_cookie(key="message_update", value="Account info updated successfully! Please login again.", max_age=5)
     return response
 
 
 @api.get("/delete_user/", response_class=HTMLResponse)
-def delete_form(request: Request, user: UserORM = Depends(jwt_required)):
+def delete_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     can_delete = request.cookies.get("can_edit_or_delete")
     if can_delete != "1":
         if user.is_admin:
@@ -258,10 +328,22 @@ def delete_form(request: Request, user: UserORM = Depends(jwt_required)):
 
 
 @api.post("/delete_user/", response_class=HTMLResponse)
-def delete_user(request: Request, user: UserORM = Depends(jwt_required), method_override: str = Form(), db: Session = Depends(get_db)):
+def delete_user(request: Request, auth_token: str = Cookie(None), method_override: str = Form(), db: Session = Depends(get_db)):
     if method_override != "delete":
         raise HTTPException(status_code=405, detail="Method not allowed.")
     
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     can_delete = request.cookies.get("can_edit_or_delete")
     if can_delete != "1":
         if user.is_admin:
@@ -271,17 +353,14 @@ def delete_user(request: Request, user: UserORM = Depends(jwt_required), method_
         response.set_cookie(key="expired_auth", value="Delete session expired, please try again.", max_age=5)
         return response
 
-    username = request.cookies.get("username")
-    user = db.query(UserORM).filter(UserORM.name == username).first()
+    user = db.query(UserORM).filter(UserORM.name == user.name).first()
     if not user:
-        return templates.TemplateResponse("user_delete.html", {"request": request, "message": f"User {username} does not exists."})
+        return templates.TemplateResponse("user_delete.html", {"request": request, "message": f"User {user.name} does not exists."})
         
     db.delete(user)
     db.commit()
 
     response = RedirectResponse("/", status_code=303)
-    response.delete_cookie("session_id")
-    response.delete_cookie("username")
     response.delete_cookie("can_edit_or_delete")
     response.set_cookie(key="message_update", value="Account was deleted.", max_age=5)
     return response
@@ -289,7 +368,18 @@ def delete_user(request: Request, user: UserORM = Depends(jwt_required), method_
 
 @api.get("/update_user/authentication/", response_class=HTMLResponse)
 @api.get("/delete_user/authentication/", response_class=HTMLResponse)
-def get_authetication_form(request: Request, user: UserORM = Depends(jwt_required), next: str = "update"):
+def get_authetication_form(request: Request, auth_token: str = Cookie(None), db:Session = Depends(get_db), next: str = "update"):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
     response = templates.TemplateResponse("authentication.html", {"request": request, "next": next})
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -297,8 +387,20 @@ def get_authetication_form(request: Request, user: UserORM = Depends(jwt_require
 
 @api.post("/update_user/authentication/", response_class=HTMLResponse)
 @api.post("/delete_user/authentication/", response_class=HTMLResponse)
-def authenticate_user_form(request: Request, user: UserORM = Depends(jwt_required), username: str = Form(), password: str = Form(), next: str = Form("update"), db: Session = Depends(get_db)):
-    if username != request.cookies.get("username"):
+def authenticate_user_form(request: Request, auth_token: str = Cookie(None), username: str = Form(), password: str = Form(), next: str = Form("update"), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
+    if username != user.name:
         return templates.TemplateResponse("authentication.html", {"request": request, "message": "Incorrect username."})
     
     user = db.query(UserORM).filter(UserORM.name == username).first()
@@ -318,21 +420,49 @@ def authenticate_user_form(request: Request, user: UserORM = Depends(jwt_require
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR TRANSACTIONS ################################################
 @api.get('/transactions/', response_class=HTMLResponse)
-def load_transactions(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
-    username = user.name
+def load_transactions(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    no_tx_message = request.cookies.get("no_tx_message")
+    user = result
+
     transactions = db.query(TransactionORM).filter(TransactionORM.user_id == user.id).all()
     if not transactions:
-        response = templates.TemplateResponse("transactions.html", {"request": request, "message": f"No transactions found for {username}.", "username": username})
+        message = f"No transactions found for {user.name}."
+        response = templates.TemplateResponse("transactions.html", {"request": request, "message": message, "username": user.name, "no_tx_message": no_tx_message})
         response.headers["Cache-Control"] = "no-store"
         return response
     
-    response = templates.TemplateResponse("transactions.html", {"request": request, "username": username, "transactions": transactions})
+    response = templates.TemplateResponse("transactions.html", {"request": request, "username": user.name, "transactions": transactions, "no_tx_message": no_tx_message})
+    if no_tx_message:
+        response.delete_cookie("no_tx_message")
     response.headers["Cache-Control"] = "no-store"
     return response
     
 
 @api.get('/add_transaction/', response_class=HTMLResponse)
-def get_add_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
+def get_add_tx_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     response = templates.TemplateResponse("add_transaction.html", {"request": request, "user_type": user.is_admin})
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -340,9 +470,21 @@ def get_add_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
 
 @api.post('/add_transaction/', response_class=HTMLResponse)
 def add_transaction(request: Request, category: str= Form(), purpose: str = Form(), 
-                    user: UserORM = Depends(jwt_required), db: Session = Depends(get_db), 
+                    auth_token: str = Cookie(None), db: Session = Depends(get_db), 
                     money_earned: str | None = Form(""),
                     money_spent: str | None = Form("")):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     money_earned_val = float(money_earned) if money_earned.strip() else None
     money_spent_val = float(money_spent) if money_spent.strip() else None
 
@@ -376,7 +518,19 @@ def add_transaction(request: Request, category: str= Form(), purpose: str = Form
 
 
 @api.get('/update_transaction/', response_class=HTMLResponse)
-def get_update_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
+def get_update_tx_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     response = templates.TemplateResponse("update_transaction.html", {"request": request, "user_type": user.is_admin})
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -385,7 +539,7 @@ def get_update_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
 @api.post('/update_transaction/', response_class=HTMLResponse)
 def update_transaction(request: Request, 
                        transaction_id: int = Form(), 
-                       user: UserORM = Depends(jwt_required), 
+                       auth_token: str = Cookie(None), 
                        db: Session = Depends(get_db),
                        method_override: str = Form(),
                        money_earned: str | None = Form(""),
@@ -394,6 +548,19 @@ def update_transaction(request: Request,
                        purpose: str | None = Form("")):
     if method_override != "put":
         raise HTTPException(status_code=405, detail="Method not allowed.")
+    
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     
     money_earned_val = float(money_earned) if money_earned.strip() else None
     money_spent_val = float(money_spent) if money_spent.strip() else None
@@ -435,16 +602,41 @@ def update_transaction(request: Request,
 
 
 @api.get('/delete_transaction/', response_class=HTMLResponse)
-def get_delete_tx_form(request: Request, user: UserORM = Depends(jwt_required)):
+def get_delete_tx_form(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
     response = templates.TemplateResponse('delete_transaction.html', {"request": request, "user_type": user.is_admin})
     response.headers["Cache-Control"] = "no-store"
     return response
 
 
 @api.post('/delete_transaction/', response_class=HTMLResponse)
-def delete_transaction(request: Request, method_override: str = Form(), transaction_id: int = Form(), user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):  
+def delete_transaction(request: Request, method_override: str = Form(), transaction_id: int = Form(), auth_token: str = Cookie(None), db: Session = Depends(get_db)):  
     if method_override != "delete":
         raise HTTPException(status_code=405, detail="Method not allowed.")
+    
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
 
     transaction = db.query(TransactionORM).filter(TransactionORM.id == transaction_id).first()
     if not transaction:
@@ -461,49 +653,89 @@ def delete_transaction(request: Request, method_override: str = Form(), transact
         return response
     
     response = RedirectResponse("/hub/", status_code=303)
-    response.set_cookie(key="success_message", value="Transaction deleted.")
+    response.set_cookie(key="success_message", value="Transaction deleted.", max_age=5)
     return response
 
 
 ################################################ START OF HTTP REQUEST FUNCTIONS FOR ANALYSIS ################################################
 @api.get('/transactions/money_earned/', response_class=HTMLResponse)
-def get_monthly_money_earned(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+def get_monthly_money_earned(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
+
     categories = ["work", "family", "friend", "bank", "groceries", "clothing", "repairs", "subscription", "rent", "restaurant", "entertainment", "gift"]
     transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_earned.isnot(None)))
     df = pd.read_sql(transactions.statement, db.bind)
     
-    df['date_time_earned'] = pd.to_datetime(df['date_time_earned'])
-    df['month'] = df['date_time_earned'].dt.to_period("M")
-    grouped_total = df.groupby('month')['money_earned'].sum().reset_index()
-    grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
-    grouped_total = grouped_total.to_dict(orient="records")
+    if not df.empty:
+        df['date_time_earned'] = pd.to_datetime(df['date_time_earned'])
+        df['month'] = df['date_time_earned'].dt.to_period("M")
+        grouped_total = df.groupby('month')['money_earned'].sum().reset_index()
+        grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
+        grouped_total = grouped_total.to_dict(orient="records")
 
-    df['category'] = df['category'].apply(lambda c: c.value)
-    grouped_category = df.groupby('category')['money_earned'].sum().reset_index()
-    reshaped_grouped_category = grouped_category.set_index('category').T
-    grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
+        df['category'] = df['category'].apply(lambda c: c.value)
+        grouped_category = df.groupby('category')['money_earned'].sum().reset_index()
+        reshaped_grouped_category = grouped_category.set_index('category').T
+        grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
 
-    response = templates.TemplateResponse("money_earned.html", {"request": request, "categories": categories, "earnings": grouped_total, "earning_by_cat": grouped_category_dict})
-    return response
+        response = templates.TemplateResponse("money_earned.html", {"request": request, "categories": categories, "earnings": grouped_total, "earning_by_cat": grouped_category_dict})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    else:
+        response = RedirectResponse("/transactions/", status_code=303)
+        response.set_cookie(key="no_tx_message", value=f"{user.name} has not received any money yet.", max_age=1)
+        return response
 
 
 @api.get('/transactions/money_spent/', response_class=HTMLResponse)
-def get_monthly_money_spent(request: Request, user: UserORM = Depends(jwt_required), db: Session = Depends(get_db)):
+def get_monthly_money_spent(request: Request, auth_token: str = Cookie(None), db: Session = Depends(get_db)):
+    if not auth_token:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value="Invalid user or session.", max_age=5)
+        return response
+    
+    ok, result = challenge_jwt(auth_token, db)
+    if not ok:
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(key="message", value=result, max_age=5)
+        return response
+
+    user = result
+
     categories = ["work", "family", "friend", "bank", "groceries", "clothing", "repairs", "subscription", "rent", "restaurant", "entertainment", "gift"]
     transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_spent.isnot(None)))
     df = pd.read_sql(transactions.statement, db.bind)
     
-    df['date_time_spent'] = pd.to_datetime(df['date_time_spent'])
-    df['month'] = df["date_time_spent"].dt.to_period("M")
-    grouped_total = df.groupby('month')['money_spent'].sum().reset_index()
-    grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
-    grouped_total = grouped_total.to_dict(orient="records")
+    if not df.empty:
+        df['date_time_spent'] = pd.to_datetime(df['date_time_spent'])
+        df['month'] = df["date_time_spent"].dt.to_period("M")
+        grouped_total = df.groupby('month')['money_spent'].sum().reset_index()
+        grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
+        grouped_total = grouped_total.to_dict(orient="records")
 
-    df['category'] = df['category'].apply(lambda c: c.value)
-    grouped_category = df.groupby('category')['money_spent'].sum().reset_index()
-    reshaped_grouped_category = grouped_category.set_index('category').T
-    grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
+        df['category'] = df['category'].apply(lambda c: c.value)
+        grouped_category = df.groupby('category')['money_spent'].sum().reset_index()
+        reshaped_grouped_category = grouped_category.set_index('category').T
+        grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
 
-    response = templates.TemplateResponse('money_spent.html', {"request": request, "categories": categories, "expenditures": grouped_total, "spending_by_cat": grouped_category_dict})
-    return response
+        response = templates.TemplateResponse('money_spent.html', {"request": request, "categories": categories, "expenditures": grouped_total, "spending_by_cat": grouped_category_dict})
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
+    else:
+        response = RedirectResponse("/transactions/", status_code=303)
+        response.set_cookie(key="no_tx_message", value=f"{user.name} has not spent any money yet.", max_age=1)
+        return response
+    

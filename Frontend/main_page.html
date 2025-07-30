@@ -15,7 +15,7 @@
         {% endif %}
         
         <div id="login">
-            <form action="/login/" method="post">
+            <form id="login-form" action="/login/" method="post">
                 <label for="username">Username:</label><br>
                 <input type="text" id="username" name="username" required><br>
                 <label for="password">Password</label><br>
@@ -23,10 +23,13 @@
                 <input type="submit" value="login"><br><br>
             </form>
         </div>
+        
         <div id="sign_up">
             <form action="/create_user/" method="get">
                 <input type="submit" value="sign up"><br><br>
             </form>
         </div>
+
+        <script src="static/user_login.js"></script>
     </body>
 </html>
