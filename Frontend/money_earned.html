@@ -20,39 +20,47 @@
                 <thead>
                     <tr>
                         <th>Month</th>
-                        <th>Total Earned</th>
-                        <th>work</th>
+                        <th>Total Spent</th>
+                        <th>Bank</th>
+                        <th>Entertainment</th>
                         <th>Family</th>
                         <th>Friend</th>
-                        <th>Bank</th>
                         <th>Groceries</th>
-                        <th>Clothing</th>
-                        <th>Repairs</th>
-                        <th>Subscription</th>
                         <th>Rent</th>
+                        <th>Repairs</th>
                         <th>Restaurant</th>
-                        <th>Entertainment</th>
+                        <th>Subscription</th>
+                        <th>Clothing</th>
+                        <th>Work</th>
                         <th>Gift</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        {% if earnings %}
-                            {% for row in earnings %}
+                    {% for row in earnings %}
+                        <tr>
                             <td>{{ row.month }}</td>
-                            <td>{{ row.money_earned }}</td>
+                            <td>{{ row.money_earned }}</td>                                
+                            {% for category in categories %}
+                                {% if category in earning_by_cat[row.month] %}
+                                    <td><p>{{ "%.2f"|format(earning_by_cat[row.month][category]) }}<br>
+                                        <span style="font-size: 0.75em; color: {{ cat_percent[row.month][category]['color'] }}">
+                                            ({{ cat_percent[row.month][category]['percent'] }})</span></p></td>
+                                {% else %}
+                                    <td><p>0.00<br><span style="font-size: 0.75em; color: grey;">(0%)</span></p></p></td>
+                                {% endif %}
                             {% endfor %}
-                        {% endif %}
-                        {% for category in categories %}
-                            {% if category in earning_by_cat %}
-                            <td>{{ "%.2f"|format(earning_by_cat[category]) }}</td>
-                            {% else %}
-                            <td><p>0.00</p></td>
-                            {% endif %}
-                        {% endfor %}
-                    </tr>
+                        </tr>
+                    {% endfor %}
                 </tbody>
             </table>
         </div><br><br>
+
+        <div id="links">
+            {% if user_type %}
+            <p>Return to <a href="http://127.0.0.1:8000/hub-admin/">Main Hub</a></p>
+            {% else %}
+            <p>Return to <a href="http://127.0.0.1:8000/hub/">Main Hub</a></p>
+            {% endif %}
+        </div>
     </body>
 </html>

@@ -74,11 +74,12 @@ def main_hub(request: Request, auth_token: str = Cookie(None), db: Session = Dep
         return response
     
     message = request.cookies.get("message")
+    success_message = request.cookies.get("success_message")
     user = result
 
-    response = templates.TemplateResponse("main_hub.html", {"request": request, "username": user.name, "user": user, "message": message})
-    if message:
-        response.delete_cookie("message")
+    response = templates.TemplateResponse("main_hub.html", {"request": request, "username": user.name, "user": user, "success_message": success_message, "message": message})
+    response.delete_cookie("message")
+    response.delete_cookie("success_message")
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -95,14 +96,15 @@ def main_hub(request: Request, auth_token: str = Cookie(None), db: Session = Dep
         return response
     
     message = request.cookies.get("message")
+    success_message = request.cookies.get("success_message")
     user = result
 
     if not user.is_admin:
         return RedirectResponse("/hub/", status_code=303)
 
-    response = templates.TemplateResponse("main_hub-admin.html", {"request": request, "username": user.name, "message": message})
-    if message:
-        response.delete_cookie("message")
+    response = templates.TemplateResponse("main_hub-admin.html", {"request": request, "username": user.name, "success_message": success_message, "message": message})
+    response.delete_cookie("message")
+    response.delete_cookie("success_message")
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -195,6 +197,7 @@ def load_all_users(request: Request, auth_token: str = Cookie(None), db: Session
 @api.get("/create_user/", response_class=HTMLResponse)
 def sign_up_form(request: Request):
     response = templates.TemplateResponse("user_creation.html", {"request": request})
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -211,6 +214,7 @@ def add_user(request: Request, name: str = Form(), email: EmailStr = Form(), pas
 
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(key="message_create", value="Account successfully created!", max_age=1)
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -305,6 +309,7 @@ def update_user(request: Request,
     response = RedirectResponse("/", status_code=303)
     response.delete_cookie("can_edit_or_delete")
     response.set_cookie(key="message_update", value="Account info updated successfully! Please login again.", max_age=1)
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -371,6 +376,7 @@ def delete_user(request: Request, auth_token: str = Cookie(None), method_overrid
     response = RedirectResponse("/", status_code=303)
     response.delete_cookie("can_edit_or_delete")
     response.set_cookie(key="message_update", value="Account was deleted.", max_age=1)
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -395,7 +401,9 @@ def get_authetication_form(request: Request, auth_token: str = Cookie(None), db:
 
 @api.post("/update_user/authentication/", response_class=HTMLResponse)
 @api.post("/delete_user/authentication/", response_class=HTMLResponse)
-def authenticate_user_form(request: Request, auth_token: str = Cookie(None), username: str = Form(), password: str = Form(), next: str = Form("update"), db: Session = Depends(get_db)):
+def authenticate_user_form(request: Request, auth_token: str = Cookie(None), 
+                           username: str = Form(), password: str = Form(), next: str = Form("update"), 
+                           db: Session = Depends(get_db)):
     if not auth_token:
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(key="message", value="Invalid user or session.", max_age=1)
@@ -423,6 +431,7 @@ def authenticate_user_form(request: Request, auth_token: str = Cookie(None), use
         return templates.TemplateResponse("authentication.html", {"request": request, "message": "Invalid method."})
     
     response.set_cookie(key="can_edit_or_delete", value="1", max_age=30)
+    response.headers["Cache-Control"] = "no-store"
     return response
     
 
@@ -681,7 +690,10 @@ def get_monthly_money_earned(request: Request, auth_token: str = Cookie(None), d
 
     user = result
 
-    categories = ["work", "family", "friend", "bank", "groceries", "clothing", "repairs", "subscription", "rent", "restaurant", "entertainment", "gift"]
+    categories = ["bank", "entertainment", "family", "friend", "groceries", "rent", "repairs", "restaurant", "subscription", "clothing", "work", "gift"]
+    cat_values_dict_by_month = {}
+    cat_values_percent_dict_by_month = {}
+
     transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_earned.isnot(None)))
     df = pd.read_sql(transactions.statement, db.bind)
     
@@ -692,12 +704,45 @@ def get_monthly_money_earned(request: Request, auth_token: str = Cookie(None), d
         grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
         grouped_total = grouped_total.to_dict(orient="records")
 
-        df['category'] = df['category'].apply(lambda c: c.value)
-        grouped_category = df.groupby('category')['money_earned'].sum().reset_index()
-        reshaped_grouped_category = grouped_category.set_index('category').T
-        grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
+        for entry in grouped_total:
+            month = entry['month']
+            df_month = df[df['month'] == month].copy()
+            df_month['category'] = df['category'].apply(lambda c: c.value)
+            grouped_category = df_month.groupby('category')['money_earned'].sum().reset_index()
+            reshaped_grouped_category = grouped_category.set_index('category').T
+            grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
+            cat_values_dict_by_month[month] = grouped_category_dict
 
-        response = templates.TemplateResponse("money_earned.html", {"request": request, "categories": categories, "earnings": grouped_total, "earning_by_cat": grouped_category_dict})
+            value_total = sum(grouped_category['money_earned'])
+            cat_values_percent_dict = {}
+
+            for _, row in grouped_category.iterrows():
+                cat = row['category']
+                value = row['money_earned']
+                cat_proportion = value/ value_total
+                cat_percent = f"{(cat_proportion * 100):.2f}%"
+                cat_values_percent_dict[cat] = cat_percent
+
+                percent_color = 0
+                if cat_proportion < 0.15:
+                    percent_color = "red"
+                elif cat_proportion < 0.30:
+                    percent_color = "orange"
+                elif cat_proportion < 0.50:
+                    percent_color = "#BFAF00"
+                else:
+                    percent_color = "green"
+
+                cat_values_percent_dict[cat] = {
+                    'percent': cat_percent,
+                    'color': percent_color
+                }
+            
+            cat_values_percent_dict_by_month[month] = cat_values_percent_dict
+
+        response = templates.TemplateResponse("money_earned.html", 
+                                              {"request": request, "user_type": user.is_admin, "categories": categories, "earnings": grouped_total, 
+                                               "earning_by_cat": cat_values_dict_by_month, "cat_percent": cat_values_percent_dict_by_month})
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -722,7 +767,10 @@ def get_monthly_money_spent(request: Request, auth_token: str = Cookie(None), db
 
     user = result
 
-    categories = ["work", "family", "friend", "bank", "groceries", "clothing", "repairs", "subscription", "rent", "restaurant", "entertainment", "gift"]
+    categories = ["bank", "entertainment", "family", "friend", "groceries", "rent", "repairs", "restaurant", "subscription", "clothing", "work", "gift"]
+    cat_values_dict_by_month = {}
+    cat_values_percent_dict_by_month = {}
+
     transactions = db.query(TransactionORM).filter((TransactionORM.user_id == user.id) & (TransactionORM.money_spent.isnot(None)))
     df = pd.read_sql(transactions.statement, db.bind)
     
@@ -733,12 +781,45 @@ def get_monthly_money_spent(request: Request, auth_token: str = Cookie(None), db
         grouped_total['month'] = grouped_total['month'].dt.strftime('%B %Y')
         grouped_total = grouped_total.to_dict(orient="records")
 
-        df['category'] = df['category'].apply(lambda c: c.value)
-        grouped_category = df.groupby('category')['money_spent'].sum().reset_index()
-        reshaped_grouped_category = grouped_category.set_index('category').T
-        grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
+        for entry in grouped_total:
+            month = entry['month']
+            df_month = df[df['month'] == month].copy()
+            df_month['category'] = df_month['category'].apply(lambda c: c.value)
+            grouped_category = df_month.groupby('category')['money_spent'].sum().reset_index()
+            reshaped_grouped_category = grouped_category.set_index('category').T
+            grouped_category_dict = reshaped_grouped_category.to_dict(orient="records")[0]
+            cat_values_dict_by_month[month] = grouped_category_dict
 
-        response = templates.TemplateResponse('money_spent.html', {"request": request, "categories": categories, "expenditures": grouped_total, "spending_by_cat": grouped_category_dict})
+
+            value_total = sum(grouped_category['money_spent'])
+            cat_values_percent_dict = {}
+
+            for _, row in grouped_category.iterrows():
+                cat = row['category']
+                value = row['money_spent']
+                cat_proportion = value/ value_total
+                cat_percent = f"{(cat_proportion * 100):.2f}%"
+
+                percent_color = 0
+                if cat_proportion < 0.15:
+                    percent_color = "green"
+                elif cat_proportion < 0.30:
+                    percent_color = "#BFAF00"
+                elif cat_proportion < 0.50:
+                    percent_color = "orange"
+                else:
+                    percent_color = "red"
+
+                cat_values_percent_dict[cat] = {
+                    'percent': cat_percent,
+                    'color': percent_color
+                }
+            
+            cat_values_percent_dict_by_month[month] = cat_values_percent_dict
+        
+        response = templates.TemplateResponse('money_spent.html', 
+                                              {"request": request, "user_type": user.is_admin, "categories": categories, "expenditures": grouped_total, 
+                                               "spending_by_cat": cat_values_dict_by_month, "cat_percent": cat_values_percent_dict_by_month})
         response.headers["Cache-Control"] = "no-store"
         return response
 

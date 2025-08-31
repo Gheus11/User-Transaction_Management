@@ -11,8 +11,15 @@
     <body>
         <h1>{{ username }}'s Transactions</h1><br>
 
-        <a href="http://127.0.0.1:8000/transactions/money_earned/">Money Earned</a><br>
-        <a href="http://127.0.0.1:8000/transactions/money_spent/">Money Spent</a><br><br><br>
+        <div id="links"></div>
+            <a href="http://127.0.0.1:8000/transactions/money_earned/">Money Earned</a><br>
+            <a href="http://127.0.0.1:8000/transactions/money_spent/">Money Spent</a><br>
+            {% if user_type %}
+                <p>Return to <a href="http://127.0.0.1:8000/hub-admin/">Main Hub</a></p>
+            {% else %}
+                <p>Return to <a href="http://127.0.0.1:8000/hub/">Main Hub</a></p>
+            {% endif %}
+        </div><br><br>
 
         {% if no_tx_message %}
             <p style="color: purple;">{{ no_tx_message }}</p>
