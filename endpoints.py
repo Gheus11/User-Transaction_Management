@@ -520,7 +520,7 @@ def add_transaction(request: Request, category: str= Form(), purpose: str = Form
         return response
     
     money_earned = money_earned_val
-    date_time_earned = datetime.now(timezone.utc) if money_earned_val else None
+    date_time_earned = datetime.now(timezone.utc) if money_earned_val else None #2025-09-30 11:06:36.274149
     money_spent = money_spent_val
     date_time_spent = datetime.now(timezone.utc) if money_spent_val else None
     
